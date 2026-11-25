@@ -953,3 +953,41 @@ tbody tr:hover {
   border-radius: var(--radius-md);
   background: var(--surface);
 }
+
+/* ---------- Proctoring & Speed Mode ---------- */
+.proctor-no-select,
+.proctor-no-select * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.proctor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.speed-timer-pill {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 14px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+
+.speed-timer-pill.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-border);
+  animation: pulse 0.9s infinite;
+}

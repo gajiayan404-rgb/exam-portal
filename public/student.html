@@ -80,9 +80,19 @@
         <div class="text-sm text-muted" id="active-student-meta">Student • Roll No</div>
       </div>
       <div class="flex-row">
+        <div class="speed-timer-pill hidden" id="speed-timer-pill">⚡ 30s / Q</div>
         <div class="exam-timer" id="exam-timer">15:00</div>
         <button type="button" id="open-submit-modal-btn" class="btn btn-success">Submit Exam ✓</button>
       </div>
+    </div>
+
+    <div class="proctor-bar hidden" id="proctor-bar">
+      <div class="flex-row">
+        <span class="badge badge-primary" id="proctor-warning-pill">🛡️ Proctored Exam • 0 Strikes</span>
+        <span class="badge badge-neutral hidden" id="proctor-copy-pill">🔒 Copy-Paste Disabled</span>
+        <span class="badge badge-warning hidden" id="proctor-speed-pill">⚡ Speed Mode Active</span>
+      </div>
+      <button type="button" id="enter-fullscreen-btn" class="btn btn-secondary btn-sm hidden">⛶ Enter Fullscreen</button>
     </div>
 
     <div class="exam-layout">

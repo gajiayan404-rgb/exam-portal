@@ -293,6 +293,12 @@ function buildResultEmail({ submission, instituteName, teacherName }) {
     .map((sb) => `  - ${sb.subjectName}: ${sb.marksObtained}/${sb.maxMarks} (${sb.correct}/${sb.totalQuestions} correct)`)
     .join('\n');
 
+  const proctor = submission.proctoring || {};
+  const vCount = Number(proctor.violationsCount) || 0;
+  const proctorLine = vCount > 0
+    ? `Proctoring Flags: ${vCount} violation(s)${proctor.autoSubmittedReason === 'proctor-limit' ? ' (Auto-submitted on limit)' : ''}`
+    : 'Proctoring: Clean (0 violations)';
+
   const text = [
     `${instituteName} — Exam Result Report`,
     `========================================`,
@@ -306,6 +312,7 @@ function buildResultEmail({ submission, instituteName, teacherName }) {
     `Total Marks: ${submission.score} / ${submission.totalMarks} (${submission.percentage}%)`,
     `Correct: ${submission.correctCount} | Wrong: ${submission.wrongCount} | Skipped: ${submission.skippedCount}`,
     `Time Taken: ${formatDuration(submission.timeTakenSeconds)}`,
+    proctorLine,
     ``,
     `Subject-wise Breakdown:`,
     subjLines,
@@ -374,6 +381,9 @@ function buildResultEmail({ submission, instituteName, teacherName }) {
           <div style="font-size:15px;font-weight:700;color:${statusColor};">${submission.percentage}% &bull; ${statusLabel}</div>
           <div style="font-size:13px;color:#475569;margin-top:6px;">
             Correct: ${submission.correctCount} &bull; Wrong: ${submission.wrongCount} &bull; Skipped: ${submission.skippedCount} &bull; Time: ${formatDuration(submission.timeTakenSeconds)}
+          </div>
+          <div style="font-size:12.5px;margin-top:6px;font-weight:700;color:${vCount > 0 ? '#dc2626' : '#059669'};">
+            ${escapeHtml(proctorLine)}
           </div>
         </div>
 

@@ -18,8 +18,16 @@
     markedReview: {},  // { [questionId]: true }
     remainingSeconds: 0,
     totalDurationSeconds: 0,
+    qRemainingSeconds: 0,
+    examStartedAt: 0,
     timerId: null,
     isSubmitting: false,
+    proctoring: {
+      events: [],
+      lastTriggeredAt: 0,
+      graceUntil: 0,
+      cleanupFns: []
+    },
     studentProfile: {
       name: '',
       rollNumber: '',
@@ -149,6 +157,9 @@
                 <span class="badge badge-primary">${exam.questionCount} MCQs</span>
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
                 <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
+                ${exam.speedModeSeconds > 0 ? `<span class="badge badge-warning">⚡ Speed: ${exam.speedModeSeconds}s/Q</span>` : ''}
+                ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ Proctored</span>` : ''}
+                ${exam.requireFullscreen ? `<span class="badge badge-neutral">⛶ Fullscreen</span>` : ''}
                 ${exam.negativeMarking > 0 ? `<span class="badge badge-danger">-${exam.negativeMarking} Negative</span>` : ''}
                 ${subjBadges}
               </div>
@@ -243,17 +254,195 @@
       state.isSubmitting = false;
       state.totalDurationSeconds = exam.durationMinutes * 60;
       state.remainingSeconds = state.totalDurationSeconds;
+      state.qRemainingSeconds = exam.speedModeSeconds > 0 ? exam.speedModeSeconds : 0;
+      state.examStartedAt = Date.now();
+      state.proctoring.events = [];
+      state.proctoring.lastTriggeredAt = 0;
+      state.proctoring.graceUntil = Date.now() + 1400;
+
+      if (exam.requireFullscreen && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
 
       document.getElementById('active-exam-title').textContent = exam.title;
       document.getElementById('active-student-meta').textContent =
         `${state.studentProfile.name} • Roll: ${state.studentProfile.rollNumber}${state.studentProfile.batch ? ` • ${state.studentProfile.batch}` : ''} • ${exam.totalMarks} Total Marks`;
 
       showView('exam');
+      setupProctoring(exam);
       renderQuestion();
       renderPalette();
       startTimer();
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  }
+
+  // ---------- Anti-Cheating & Proctoring ----------
+  function updateProctorUi() {
+    const exam = state.activeExam;
+    if (!exam) return;
+    const bar = document.getElementById('proctor-bar');
+    const warnPill = document.getElementById('proctor-warning-pill');
+    const copyPill = document.getElementById('proctor-copy-pill');
+    const speedPill = document.getElementById('proctor-speed-pill');
+    const fsBtn = document.getElementById('enter-fullscreen-btn');
+
+    const showBar = exam.proctorTabSwitch !== false || exam.blockCopyPaste !== false || exam.requireFullscreen || exam.speedModeSeconds > 0;
+    bar.classList.toggle('hidden', !showBar);
+
+    const vCount = state.proctoring.events.length;
+    const maxV = Number(exam.maxTabViolations) || 0;
+    if (exam.proctorTabSwitch !== false) {
+      warnPill.classList.remove('hidden');
+      warnPill.textContent = maxV > 0
+        ? `🛡️ Proctored • ${vCount} / ${maxV} Strikes`
+        : `🛡️ Proctored • ${vCount} Warning${vCount === 1 ? '' : 's'}`;
+      warnPill.className = vCount === 0
+        ? 'badge badge-primary'
+        : (maxV > 0 && vCount >= maxV - 1 ? 'badge badge-danger' : 'badge badge-warning');
+    } else {
+      warnPill.classList.add('hidden');
+    }
+
+    copyPill.classList.toggle('hidden', exam.blockCopyPaste === false);
+    speedPill.classList.toggle('hidden', !(exam.speedModeSeconds > 0));
+    speedPill.textContent = `⚡ Speed Mode: ${exam.speedModeSeconds}s / Question`;
+
+    const needsFs = Boolean(exam.requireFullscreen && !document.fullscreenElement);
+    fsBtn.classList.toggle('hidden', !needsFs);
+  }
+
+  function recordViolation(type) {
+    const exam = state.activeExam;
+    if (!exam || state.isSubmitting) return;
+    const now = Date.now();
+    if (now < state.proctoring.graceUntil) return;
+    // Debounce burst blur+visibilitychange events within 1.5s
+    if (now - state.proctoring.lastTriggeredAt < 1500) return;
+
+    state.proctoring.lastTriggeredAt = now;
+    state.proctoring.events.push({
+      type,
+      questionNumber: state.currentIdx + 1,
+      at: new Date().toISOString()
+    });
+
+    updateProctorUi();
+    const count = state.proctoring.events.length;
+    const maxV = Number(exam.maxTabViolations) || 0;
+
+    if (maxV > 0 && count >= maxV) {
+      closeModal();
+      showToast(`Strike ${count}/${maxV}: Tab/focus violation limit reached! Auto-submitting exam.`, 'error');
+      submitExam('proctor-limit');
+      return;
+    }
+
+    const label = type === 'fullscreen-exit'
+      ? 'You exited Fullscreen mode'
+      : 'Tab / Window switch detected';
+    openModal(`
+      <div class="flex-between mb-2">
+        <h2 class="card-title" style="color:var(--danger);">⚠️ Proctoring Warning (${count}${maxV > 0 ? ` / ${maxV}` : ''})</h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <p style="margin:0 0 14px;">
+        <strong>${escapeHtml(label)}</strong> while the exam is active. This activity is recorded for Sir.
+        ${maxV > 0 ? `<br><span style="color:var(--danger);font-weight:600;">Your exam will auto-submit automatically on strike ${maxV}.</span>` : ''}
+      </p>
+      <div class="flex-row" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-primary" id="modal-ack-proctor-btn">Return to Exam</button>
+      </div>
+    `);
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-ack-proctor-btn').addEventListener('click', () => {
+      closeModal();
+      if (exam.requireFullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    });
+  }
+
+  function setupProctoring(exam) {
+    teardownProctoring();
+
+    if (exam.blockCopyPaste !== false) {
+      examView.classList.add('proctor-no-select');
+      const blockEv = (e) => {
+        e.preventDefault();
+        showToast('Copy-paste and right-click are disabled during this exam.', 'error');
+      };
+      const blockKeys = (e) => {
+        const k = e.key.toUpperCase();
+        const ctrl = e.ctrlKey || e.metaKey;
+        if (
+          k === 'F12' ||
+          (ctrl && e.shiftKey && ['I', 'J', 'C', 'K'].includes(k)) ||
+          (ctrl && ['C', 'X', 'U', 'P', 'S'].includes(k))
+        ) {
+          e.preventDefault();
+          showToast('Keyboard shortcuts & copying are blocked during the exam.', 'error');
+        }
+      };
+      ['contextmenu', 'copy', 'cut', 'paste'].forEach((evName) => {
+        examView.addEventListener(evName, blockEv);
+        state.proctoring.cleanupFns.push(() => examView.removeEventListener(evName, blockEv));
+      });
+      document.addEventListener('keydown', blockKeys, true);
+      state.proctoring.cleanupFns.push(() => document.removeEventListener('keydown', blockKeys, true));
+    }
+
+    if (exam.proctorTabSwitch !== false) {
+      const onVisibility = () => {
+        if (document.hidden) recordViolation('tab-switch');
+      };
+      const onBlur = () => {
+        recordViolation('window-blur');
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('blur', onBlur);
+      state.proctoring.cleanupFns.push(() => {
+        document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener('blur', onBlur);
+      });
+    }
+
+    if (exam.requireFullscreen) {
+      const onFsChange = () => {
+        updateProctorUi();
+        if (!document.fullscreenElement && state.activeExam && !state.isSubmitting) {
+          if (exam.proctorTabSwitch !== false) {
+            recordViolation('fullscreen-exit');
+          } else {
+            showToast('Please stay in Fullscreen mode during the exam.', 'error');
+          }
+        }
+      };
+      document.addEventListener('fullscreenchange', onFsChange);
+      state.proctoring.cleanupFns.push(() => document.removeEventListener('fullscreenchange', onFsChange));
+    }
+
+    const fsBtn = document.getElementById('enter-fullscreen-btn');
+    const onFsClick = () => {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    };
+    fsBtn.addEventListener('click', onFsClick);
+    state.proctoring.cleanupFns.push(() => fsBtn.removeEventListener('click', onFsClick));
+
+    updateProctorUi();
+  }
+
+  function teardownProctoring() {
+    examView.classList.remove('proctor-no-select');
+    for (const fn of state.proctoring.cleanupFns) {
+      try { fn(); } catch {}
+    }
+    state.proctoring.cleanupFns = [];
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
     }
   }
 
@@ -263,11 +452,28 @@
     updateTimerDisplay();
     state.timerId = setInterval(() => {
       state.remainingSeconds -= 1;
+      if (state.activeExam?.speedModeSeconds > 0) {
+        state.qRemainingSeconds -= 1;
+        if (state.qRemainingSeconds <= 0) {
+          if (state.currentIdx < state.activeExam.questions.length - 1) {
+            state.currentIdx += 1;
+            state.qRemainingSeconds = state.activeExam.speedModeSeconds;
+            showToast(`⏱ Time up for Q${state.currentIdx} — moving to Q${state.currentIdx + 1}!`, 'info');
+            renderQuestion();
+            renderPalette();
+          } else {
+            stopTimer();
+            showToast('Speed Mode finished! Submitting your exam...', 'info');
+            submitExam('speed-mode-timeout');
+            return;
+          }
+        }
+      }
       updateTimerDisplay();
       if (state.remainingSeconds <= 0) {
         stopTimer();
         showToast('Time is up! Auto-submitting your exam...', 'info');
-        submitExam();
+        submitExam('timer-expired');
       }
     }, 1000);
   }
@@ -283,6 +489,15 @@
     const el = document.getElementById('exam-timer');
     el.textContent = formatDuration(state.remainingSeconds);
     el.classList.toggle('danger', state.remainingSeconds <= 60);
+
+    const speedPill = document.getElementById('speed-timer-pill');
+    if (state.activeExam?.speedModeSeconds > 0) {
+      speedPill.classList.remove('hidden');
+      speedPill.textContent = `⚡ Q-Time: ${Math.max(0, state.qRemainingSeconds)}s`;
+      speedPill.classList.toggle('danger', state.qRemainingSeconds <= 7);
+    } else {
+      speedPill.classList.add('hidden');
+    }
   }
 
   // ---------- Render Active Question ----------
@@ -336,7 +551,10 @@
     markBtn.textContent = isMarked ? '★ Marked for Review' : '🔖 Mark for Review';
     markBtn.className = isMarked ? 'btn btn-warning' : 'btn btn-ghost';
 
-    document.getElementById('prev-q-btn').disabled = state.currentIdx === 0;
+    const isSpeedMode = exam.speedModeSeconds > 0;
+    const prevBtn = document.getElementById('prev-q-btn');
+    prevBtn.disabled = state.currentIdx === 0 || isSpeedMode;
+    prevBtn.classList.toggle('hidden', isSpeedMode);
     const nextBtn = document.getElementById('next-q-btn');
     nextBtn.textContent = state.currentIdx === total - 1 ? 'Review & Submit ✓' : 'Save & Next →';
   }
@@ -344,6 +562,7 @@
   function renderPalette() {
     const exam = state.activeExam;
     if (!exam) return;
+    const isSpeedMode = exam.speedModeSeconds > 0;
 
     let answered = 0;
     let marked = 0;
@@ -362,16 +581,18 @@
       else if (hasAns) classes.push('answered');
       if (idx === state.currentIdx) classes.push('current');
 
-      return `<button type="button" class="${classes.join(' ')}" data-idx="${idx}">${idx + 1}</button>`;
+      return `<button type="button" class="${classes.join(' ')}" data-idx="${idx}" ${isSpeedMode ? 'disabled style="cursor:default;opacity:0.85;"' : ''}>${idx + 1}</button>`;
     }).join('');
 
-    paletteEl.querySelectorAll('.palette-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        state.currentIdx = Number(btn.dataset.idx);
-        renderQuestion();
-        renderPalette();
+    if (!isSpeedMode) {
+      paletteEl.querySelectorAll('.palette-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.currentIdx = Number(btn.dataset.idx);
+          renderQuestion();
+          renderPalette();
+        });
       });
-    });
+    }
 
     document.getElementById('count-answered').textContent = answered;
     document.getElementById('count-marked').textContent = marked;
@@ -380,6 +601,7 @@
 
   // Navigation buttons
   document.getElementById('prev-q-btn').addEventListener('click', () => {
+    if (state.activeExam?.speedModeSeconds > 0) return;
     if (state.currentIdx > 0) {
       state.currentIdx -= 1;
       renderQuestion();
@@ -391,6 +613,10 @@
     if (!state.activeExam) return;
     if (state.currentIdx < state.activeExam.questions.length - 1) {
       state.currentIdx += 1;
+      if (state.activeExam.speedModeSeconds > 0) {
+        state.qRemainingSeconds = state.activeExam.speedModeSeconds;
+        updateTimerDisplay();
+      }
       renderQuestion();
       renderPalette();
     } else {
@@ -459,17 +685,20 @@
     document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
     document.getElementById('confirm-submit-btn').addEventListener('click', () => {
       closeModal();
-      submitExam();
+      submitExam('manual');
     });
   }
 
   // ---------- Submit & Auto-Grade ----------
-  async function submitExam() {
+  async function submitExam(reason = 'manual') {
     if (state.isSubmitting || !state.activeExam) return;
     state.isSubmitting = true;
     stopTimer();
+    teardownProctoring();
 
-    const elapsedSeconds = Math.max(1, state.totalDurationSeconds - Math.max(0, state.remainingSeconds));
+    const elapsedSeconds = state.examStartedAt
+      ? Math.max(1, Math.round((Date.now() - state.examStartedAt) / 1000))
+      : Math.max(1, state.totalDurationSeconds - Math.max(0, state.remainingSeconds));
     const examId = state.activeExam.id;
 
     try {
@@ -481,7 +710,12 @@
           studentEmail: state.studentProfile.email,
           batch: state.studentProfile.batch,
           answers: state.answers,
-          timeTakenSeconds: elapsedSeconds
+          timeTakenSeconds: elapsedSeconds,
+          proctoring: {
+            violationsCount: state.proctoring.events.length,
+            autoSubmittedReason: reason,
+            events: state.proctoring.events
+          }
         }
       });
 
@@ -606,6 +840,16 @@
         ` : result.emailDelivery?.status === 'failed' ? `
           <div class="badge badge-warning mt-2" style="padding:8px 14px;border-radius:10px;white-space:normal;">
             ⚠️ Marks saved, but auto-email could not be delivered (${escapeHtml(result.emailDelivery.error || 'SMTP error')}). Sir can resend from Teacher Portal.
+          </div>
+        ` : ''}
+
+        ${result.proctoring ? `
+          <div class="mt-2">
+            <span class="badge ${result.proctoring.violationsCount > 0 ? 'badge-warning' : 'badge-success'}">
+              ${result.proctoring.violationsCount > 0
+                ? `⚠️ Proctoring Flags: ${result.proctoring.violationsCount}${result.proctoring.autoSubmittedReason === 'proctor-limit' ? ' (Auto-submitted at strike limit)' : ''}`
+                : '🛡️ Proctoring Status: Clean (0 violations)'}
+            </span>
           </div>
         ` : ''}
       </div>

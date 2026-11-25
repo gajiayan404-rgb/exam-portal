@@ -55,6 +55,11 @@ function createInitialStore() {
         shuffleQuestions: false,
         showResultsImmediately: true,
         allowRetake: true,
+        proctorTabSwitch: true,
+        maxTabViolations: 3,
+        requireFullscreen: false,
+        blockCopyPaste: true,
+        speedModeSeconds: 0,
         isLive: true,
         questionIds: defaultExamQuestionIds,
         createdAt: now,
@@ -501,6 +506,13 @@ class ExamStore {
     const marksPerQuestion = Math.max(0.5, Math.min(100, Number(payload.marksPerQuestion) || 1));
     const negativeMarking = Math.max(0, Math.min(marksPerQuestion, Number(payload.negativeMarking) || 0));
     const passPercentage = Math.max(1, Math.min(100, Number(payload.passPercentage) || 40));
+    const proctorTabSwitch = payload.proctorTabSwitch !== undefined ? Boolean(payload.proctorTabSwitch) : true;
+    const rawMaxViolations = Number(payload.maxTabViolations);
+    const maxTabViolations = Number.isFinite(rawMaxViolations) ? Math.max(0, Math.min(20, Math.round(rawMaxViolations))) : 3;
+    const requireFullscreen = Boolean(payload.requireFullscreen);
+    const blockCopyPaste = payload.blockCopyPaste !== undefined ? Boolean(payload.blockCopyPaste) : true;
+    const rawSpeed = Number(payload.speedModeSeconds);
+    const speedModeSeconds = Number.isFinite(rawSpeed) && rawSpeed > 0 ? Math.max(5, Math.min(300, Math.round(rawSpeed))) : 0;
     const now = new Date().toISOString();
 
     if (payload.id) {
@@ -521,6 +533,11 @@ class ExamStore {
         shuffleQuestions: Boolean(payload.shuffleQuestions),
         showResultsImmediately: payload.showResultsImmediately !== false,
         allowRetake: payload.allowRetake !== false,
+        proctorTabSwitch,
+        maxTabViolations,
+        requireFullscreen,
+        blockCopyPaste,
+        speedModeSeconds,
         isLive: payload.isLive !== undefined ? Boolean(payload.isLive) : this.data.exams[idx].isLive,
         questionIds,
         updatedAt: now
@@ -541,6 +558,11 @@ class ExamStore {
       shuffleQuestions: Boolean(payload.shuffleQuestions),
       showResultsImmediately: payload.showResultsImmediately !== false,
       allowRetake: payload.allowRetake !== false,
+      proctorTabSwitch,
+      maxTabViolations,
+      requireFullscreen,
+      blockCopyPaste,
+      speedModeSeconds,
       isLive: payload.isLive !== undefined ? Boolean(payload.isLive) : true,
       questionIds,
       createdAt: now,
@@ -591,6 +613,11 @@ class ExamStore {
           negativeMarking: enriched.negativeMarking,
           passPercentage: enriched.passPercentage,
           allowRetake: enriched.allowRetake,
+          proctorTabSwitch: enriched.proctorTabSwitch !== false,
+          maxTabViolations: enriched.maxTabViolations ?? 3,
+          requireFullscreen: Boolean(enriched.requireFullscreen),
+          blockCopyPaste: enriched.blockCopyPaste !== false,
+          speedModeSeconds: Number(enriched.speedModeSeconds) || 0,
           questionCount: enriched.questionCount,
           totalMarks: enriched.totalMarks,
           subjectBreakdown: enriched.subjectBreakdown,
@@ -656,6 +683,11 @@ class ExamStore {
       marksPerQuestion: exam.marksPerQuestion,
       negativeMarking: exam.negativeMarking,
       passPercentage: exam.passPercentage,
+      proctorTabSwitch: exam.proctorTabSwitch !== false,
+      maxTabViolations: exam.maxTabViolations ?? 3,
+      requireFullscreen: Boolean(exam.requireFullscreen),
+      blockCopyPaste: exam.blockCopyPaste !== false,
+      speedModeSeconds: Number(exam.speedModeSeconds) || 0,
       totalMarks: questions.length * (Number(exam.marksPerQuestion) || 1),
       questionCount: questions.length,
       questions
@@ -792,6 +824,20 @@ class ExamStore {
     const percentage = totalMarks > 0 ? Number(((score / totalMarks) * 100).toFixed(1)) : 0;
     const passed = percentage >= (Number(exam.passPercentage) || 40);
 
+    const rawProctor = payload.proctoring && typeof payload.proctoring === 'object' ? payload.proctoring : {};
+    const events = Array.isArray(rawProctor.events)
+      ? rawProctor.events.slice(0, 50).map((ev) => ({
+          type: String(ev.type || 'tab-switch').slice(0, 32),
+          questionNumber: Number(ev.questionNumber) || 1,
+          at: String(ev.at || new Date().toISOString())
+        }))
+      : [];
+    const violationsCount = Math.max(0, Number(rawProctor.violationsCount) || events.length);
+    const allowedReasons = ['manual', 'timer-expired', 'proctor-limit', 'speed-mode-timeout'];
+    const autoSubmittedReason = allowedReasons.includes(rawProctor.autoSubmittedReason)
+      ? rawProctor.autoSubmittedReason
+      : 'manual';
+
     const submission = {
       id: `sub-${crypto.randomBytes(5).toString('hex')}`,
       examId: exam.id,
@@ -811,6 +857,12 @@ class ExamStore {
       passPercentage: Number(exam.passPercentage) || 40,
       timeTakenSeconds,
       subjectBreakdown: Object.values(subjectStats),
+      proctoring: {
+        violationsCount,
+        maxViolations: exam.maxTabViolations ?? 3,
+        autoSubmittedReason,
+        events
+      },
       review,
       emailDelivery: {
         status: 'disabled',
@@ -844,6 +896,7 @@ class ExamStore {
         passed: submission.passed,
         timeTakenSeconds: submission.timeTakenSeconds,
         subjectBreakdown: submission.subjectBreakdown,
+        proctoring: submission.proctoring,
         emailDelivery: submission.emailDelivery,
         submittedAt: submission.submittedAt,
         reviewHidden: true,

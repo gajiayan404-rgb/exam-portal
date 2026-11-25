@@ -122,7 +122,11 @@
     eventSource.addEventListener('submission-created', async (ev) => {
       try {
         const payload = JSON.parse(ev.data);
-        showToast(`New submission: ${payload.studentName} scored ${payload.score}/${payload.totalMarks}`, 'success');
+        const flagNote = payload.violationsCount > 0 ? ` (⚠️ ${payload.violationsCount} proctor flag${payload.violationsCount === 1 ? '' : 's'})` : '';
+        showToast(
+          `New submission: ${payload.studentName} scored ${payload.score}/${payload.totalMarks}${flagNote}`,
+          payload.violationsCount > 0 ? 'info' : 'success'
+        );
         const res = await apiFetch('/api/teacher/submissions', { auth: true });
         state.submissions = res.submissions || [];
         renderOverview();
@@ -350,6 +354,8 @@
                 <span class="badge badge-primary">${exam.questionCount} MCQs</span>
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
                 <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
+                ${exam.speedModeSeconds > 0 ? `<span class="badge badge-warning">⚡ ${exam.speedModeSeconds}s/Q</span>` : ''}
+                ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ Proctored (${exam.maxTabViolations > 0 ? `${exam.maxTabViolations} strikes` : 'Warn'})</span>` : ''}
                 <span class="badge badge-neutral">📝 ${exam.submissionsCount} Submissions</span>
                 ${subjBadges}
               </div>
@@ -556,10 +562,15 @@
     document.getElementById('exam-marks-input').value = '1';
     document.getElementById('exam-neg-input').value = '0';
     document.getElementById('exam-pass-input').value = '40';
+    document.getElementById('exam-speed-input').value = '0';
+    document.getElementById('exam-max-violations-input').value = '3';
     document.getElementById('exam-live-check').checked = true;
     document.getElementById('exam-shuffle-check').checked = false;
     document.getElementById('exam-show-results-check').checked = true;
     document.getElementById('exam-retake-check').checked = true;
+    document.getElementById('exam-proctor-tab-check').checked = true;
+    document.getElementById('exam-block-copy-check').checked = true;
+    document.getElementById('exam-fullscreen-check').checked = false;
     renderBuilderQuestions();
     renderSelectedSummary();
   }
@@ -575,10 +586,15 @@
     document.getElementById('exam-marks-input').value = exam.marksPerQuestion;
     document.getElementById('exam-neg-input').value = exam.negativeMarking || 0;
     document.getElementById('exam-pass-input').value = exam.passPercentage || 40;
+    document.getElementById('exam-speed-input').value = exam.speedModeSeconds || 0;
+    document.getElementById('exam-max-violations-input').value = exam.maxTabViolations ?? 3;
     document.getElementById('exam-live-check').checked = Boolean(exam.isLive);
     document.getElementById('exam-shuffle-check').checked = Boolean(exam.shuffleQuestions);
     document.getElementById('exam-show-results-check').checked = exam.showResultsImmediately !== false;
     document.getElementById('exam-retake-check').checked = exam.allowRetake !== false;
+    document.getElementById('exam-proctor-tab-check').checked = exam.proctorTabSwitch !== false;
+    document.getElementById('exam-block-copy-check').checked = exam.blockCopyPaste !== false;
+    document.getElementById('exam-fullscreen-check').checked = Boolean(exam.requireFullscreen);
     renderBuilderQuestions();
     renderSelectedSummary();
     switchTab('builder');
@@ -646,10 +662,15 @@
       marksPerQuestion: Number(document.getElementById('exam-marks-input').value) || 1,
       negativeMarking: Number(document.getElementById('exam-neg-input').value) || 0,
       passPercentage: Number(document.getElementById('exam-pass-input').value) || 40,
+      speedModeSeconds: Math.max(0, Number(document.getElementById('exam-speed-input').value) || 0),
+      maxTabViolations: Math.max(0, Number(document.getElementById('exam-max-violations-input').value) || 0),
       isLive: document.getElementById('exam-live-check').checked,
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
       showResultsImmediately: document.getElementById('exam-show-results-check').checked,
       allowRetake: document.getElementById('exam-retake-check').checked,
+      proctorTabSwitch: document.getElementById('exam-proctor-tab-check').checked,
+      blockCopyPaste: document.getElementById('exam-block-copy-check').checked,
+      requireFullscreen: document.getElementById('exam-fullscreen-check').checked,
       questionIds
     };
 
@@ -1089,8 +1110,20 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
     const rows = getFilteredSubmissions();
     const tbody = document.getElementById('results-table-body');
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--text-muted);">No student submissions yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:28px;color:var(--text-muted);">No student submissions yet.</td></tr>`;
       return;
+    }
+
+    function renderProctorBadge(proctoring) {
+      const v = Number(proctoring?.violationsCount) || 0;
+      const autoLimit = proctoring?.autoSubmittedReason === 'proctor-limit';
+      if (v === 0) {
+        return `<span class="badge badge-success">✓ Clean</span>`;
+      }
+      if (autoLimit) {
+        return `<span class="badge badge-danger" title="Auto-submitted on violation limit">🚨 ${v} Flags</span>`;
+      }
+      return `<span class="badge badge-warning">⚠️ ${v} Flag${v === 1 ? '' : 's'}</span>`;
     }
 
     function renderEmailBadge(delivery) {
@@ -1122,6 +1155,7 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
           <span style="color:var(--danger);font-weight:600;">✕${s.wrongCount}</span> /
           <span class="text-muted">–${s.skippedCount}</span>
         </td>
+        <td>${renderProctorBadge(s.proctoring)}</td>
         <td>${renderEmailBadge(s.emailDelivery)}</td>
         <td class="font-mono text-xs">${formatDuration(s.timeTakenSeconds)}</td>
         <td class="text-xs text-muted">${escapeHtml(formatDateTime(s.submittedAt))}</td>
@@ -1222,6 +1256,22 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
         ? `<div class="badge badge-danger mb-2">✕ Email failed: ${escapeHtml(emailInfo.error || 'Error')}</div>`
         : '';
 
+    const proctor = sub.proctoring || {};
+    const vCount = Number(proctor.violationsCount) || 0;
+    const proctorEvents = Array.isArray(proctor.events) ? proctor.events : [];
+    const proctorBox = vCount > 0 ? `
+      <div class="card card-compact mb-2" style="background:var(--danger-soft);border-color:var(--danger-border);">
+        <strong style="color:var(--danger);">🚨 Proctoring Alert: ${vCount} Violation(s)${proctor.autoSubmittedReason === 'proctor-limit' ? ' — Auto-submitted on limit' : ''}</strong>
+        ${proctorEvents.length > 0 ? `
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:12.5px;color:#7f1d1d;">
+            ${proctorEvents.map((ev) => `<li>${escapeHtml(ev.type)} on Q${ev.questionNumber || '?'} at ${escapeHtml(formatDateTime(ev.at))}</li>`).join('')}
+          </ul>
+        ` : ''}
+      </div>
+    ` : `
+      <div class="badge badge-success mb-2">🛡️ Proctoring: Clean (0 violations)</div>
+    `;
+
     openModal(`
       <div class="flex-between mb-2">
         <div>
@@ -1233,6 +1283,7 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
           <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
         </div>
       </div>
+      ${proctorBox}
       ${emailLine}
       <div class="flex-row mb-2">${subjCards}</div>
       <div class="stack-md">${reviewHtml}</div>

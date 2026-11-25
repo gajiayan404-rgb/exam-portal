@@ -345,6 +345,7 @@ async function handleApi(req, res, url) {
         studentName: result.studentName,
         score: result.score,
         totalMarks: result.totalMarks,
+        violationsCount: result.proctoring ? result.proctoring.violationsCount : 0,
         emailStatus: emailDelivery ? emailDelivery.status : 'disabled'
       });
       return sendJson(res, 201, { result });
@@ -522,6 +523,8 @@ async function handleApi(req, res, url) {
           'Wrong',
           'Skipped',
           'Time Taken (sec)',
+          'Proctor Violations',
+          'Submission Mode',
           'Email Status',
           'Submitted At'
         ];
@@ -541,6 +544,8 @@ async function handleApi(req, res, url) {
             s.wrongCount,
             s.skippedCount,
             s.timeTakenSeconds,
+            s.proctoring ? s.proctoring.violationsCount : 0,
+            s.proctoring ? s.proctoring.autoSubmittedReason : 'manual',
             s.emailDelivery ? s.emailDelivery.status : 'disabled',
             s.submittedAt
           ].map(csvEscape).join(','));
