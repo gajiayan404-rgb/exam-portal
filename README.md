@@ -9,6 +9,7 @@ A lightweight, zero-dependency classroom MCQ examination platform with separate 
   - **Student Portal (`/student`):** Enter Name & Roll Number, view live exams pushed by Sir, take timed MCQ exams with a Question Navigator palette, and get instant auto-checked Total Marks, Subject-wise Breakdown, and Answer Key Review.
 - **Built-in Question Bank (120 MCQs):** 30 MCQs each for HTML, CSS, JavaScript, and Python across Easy, Medium, and Hard levels.
 - **Real-Time Live Sync:** Uses Server-Sent Events (`/api/events`) so exams published by Sir appear automatically on connected student screens over classroom Wi-Fi / LAN.
+- **Auto-Email on Submit:** Automatically sends a formatted HTML & plain-text marks report (including subject breakdown and checked answer sheet) to Sir and/or the Student via SMTP (Gmail App Password, Outlook, Yahoo, or custom SMTP) whenever a student submits an exam.
 - **Secure Auto-Grading:** Answer keys (`correctIndex` & explanations) are stripped before sending questions to students and graded server-side upon submission.
 
 ## Quick Start

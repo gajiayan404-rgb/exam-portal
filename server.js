@@ -5,6 +5,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
 const { ExamStore } = require('./src/store');
+const { parseEmailList, sendSmtpMail, buildResultEmail } = require('./src/mailer');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -14,6 +15,109 @@ const SECRET_PATH = path.join(DATA_DIR, '.session-secret');
 
 const store = new ExamStore();
 const sseClients = new Set();
+
+async function dispatchSubmissionEmail(submissionId, { forceSend = false, customTo = '' } = {}) {
+  const submission = store.getSubmission(submissionId);
+  if (!submission) {
+    const err = new Error('Submission not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const emailCfg = store.getRawEmailConfig();
+  const settings = store.data.settings;
+
+  if (!forceSend && !emailCfg.enabled) {
+    return store.setSubmissionEmailStatus(submissionId, {
+      status: 'disabled',
+      recipients: [],
+      error: '',
+      sentAt: null
+    });
+  }
+
+  if (!emailCfg.smtpHost || !emailCfg.smtpUser || !emailCfg.smtpPass) {
+    const delivery = {
+      status: 'failed',
+      recipients: [],
+      error: 'SMTP host, sender email, or password/app-password is not configured in Settings.',
+      sentAt: null
+    };
+    return store.setSubmissionEmailStatus(submissionId, delivery);
+  }
+
+  const teacherRecipients = (customTo ? parseEmailList(customTo) : (emailCfg.sendToTeacher ? parseEmailList(emailCfg.teacherEmails) : []));
+  const studentRecipients = (!customTo && emailCfg.sendToStudent && submission.studentEmail)
+    ? parseEmailList(submission.studentEmail)
+    : [];
+
+  const allRecipients = [...new Set([...teacherRecipients, ...studentRecipients])];
+  if (allRecipients.length === 0) {
+    const delivery = {
+      status: 'failed',
+      recipients: [],
+      error: 'No recipient email address found (configure Sir Email in Settings or collect Student Email).',
+      sentAt: null
+    };
+    return store.setSubmissionEmailStatus(submissionId, delivery);
+  }
+
+  const exam = store.data.exams.find((e) => e.id === submission.examId);
+  const hideReviewFromStudent = exam && exam.showResultsImmediately === false;
+
+  try {
+    const smtpOpts = {
+      host: emailCfg.smtpHost,
+      port: Number(emailCfg.smtpPort) || (emailCfg.smtpSecure ? 465 : 587),
+      secure: emailCfg.smtpSecure !== false,
+      user: emailCfg.smtpUser,
+      pass: emailCfg.smtpPass,
+      from: emailCfg.smtpUser,
+      timeoutMs: 9000,
+      rejectUnauthorized: emailCfg.rejectUnauthorized !== false
+    };
+
+    if (hideReviewFromStudent && studentRecipients.length > 0 && teacherRecipients.length > 0) {
+      const teacherMail = buildResultEmail({
+        submission,
+        instituteName: settings.instituteName,
+        teacherName: settings.teacherName
+      });
+      await sendSmtpMail({ ...smtpOpts, to: teacherRecipients, ...teacherMail });
+
+      const studentMail = buildResultEmail({
+        submission: { ...submission, review: [] },
+        instituteName: settings.instituteName,
+        teacherName: settings.teacherName
+      });
+      await sendSmtpMail({ ...smtpOpts, to: studentRecipients, ...studentMail });
+    } else {
+      const subForMail = (hideReviewFromStudent && teacherRecipients.length === 0)
+        ? { ...submission, review: [] }
+        : submission;
+      const mail = buildResultEmail({
+        submission: subForMail,
+        instituteName: settings.instituteName,
+        teacherName: settings.teacherName
+      });
+      await sendSmtpMail({ ...smtpOpts, to: allRecipients, ...mail });
+    }
+
+    return store.setSubmissionEmailStatus(submissionId, {
+      status: 'sent',
+      recipients: allRecipients,
+      error: '',
+      sentAt: new Date().toISOString()
+    });
+  } catch (err) {
+    return store.setSubmissionEmailStatus(submissionId, {
+      status: 'failed',
+      recipients: allRecipients,
+      error: err.message || 'SMTP delivery failed.',
+      sentAt: null
+    });
+  }
+}
 
 function getSessionSecret() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -234,11 +338,14 @@ async function handleApi(req, res, url) {
       const examId = decodeURIComponent(studentSubmitMatch[1]);
       const body = await readJsonBody(req);
       const result = store.submitStudentExam(examId, body);
+      const emailDelivery = await dispatchSubmissionEmail(result.id);
+      result.emailDelivery = emailDelivery;
       broadcastEvent('submission-created', {
         examId: result.examId,
         studentName: result.studentName,
         score: result.score,
-        totalMarks: result.totalMarks
+        totalMarks: result.totalMarks,
+        emailStatus: emailDelivery ? emailDelivery.status : 'disabled'
       });
       return sendJson(res, 201, { result });
     }
@@ -275,6 +382,7 @@ async function handleApi(req, res, url) {
             ...store.getPublicInfo(),
             lanUrls: getLanUrls(PORT)
           },
+          settings: store.getTeacherSettings(),
           subjects: store.listSubjects(),
           questions: store.listQuestions(),
           exams: store.listExamsTeacher(),
@@ -285,8 +393,42 @@ async function handleApi(req, res, url) {
       if (method === 'PUT' && pathname === '/api/teacher/settings') {
         const body = await readJsonBody(req);
         const updated = store.updateSettings(body);
-        broadcastEvent('info-updated', updated);
+        broadcastEvent('info-updated', store.getPublicInfo());
         return sendJson(res, 200, { settings: updated });
+      }
+
+      if (method === 'POST' && pathname === '/api/teacher/email/test') {
+        const body = await readJsonBody(req);
+        const saved = store.getRawEmailConfig();
+        const host = String(body.smtpHost || saved.smtpHost || '').trim();
+        const port = Number(body.smtpPort || saved.smtpPort) || 465;
+        const secure = body.smtpSecure !== undefined ? Boolean(body.smtpSecure) : (saved.smtpSecure !== false);
+        const user = String(body.smtpUser || saved.smtpUser || '').trim();
+        const pass = String(body.smtpPass || saved.smtpPass || '').trim();
+        const toRaw = String(body.toEmail || body.teacherEmails || saved.teacherEmails || user).trim();
+        const recipients = parseEmailList(toRaw);
+
+        if (!host || !user || !pass || recipients.length === 0) {
+          return sendJson(res, 400, {
+            error: 'Please fill SMTP Host, Sender Email, App Password, and Recipient Email first.'
+          });
+        }
+
+        const inst = store.data.settings.instituteName;
+        await sendSmtpMail({
+          host,
+          port,
+          secure,
+          user,
+          pass,
+          from: user,
+          to: recipients,
+          subject: `[${inst}] Test Email Connected Successfully`,
+          text: `Hello ${store.data.settings.teacherName || 'Sir'},\n\nYour email notification setup for ${inst} is working! Student exam scores will be delivered here automatically upon submission.`,
+          html: `<div style="font-family:Segoe UI,Arial,sans-serif;padding:20px;"><h2>✅ Email Connected — ${inst}</h2><p>Your SMTP email settings are working properly. Student exam marks will be emailed automatically when they submit.</p></div>`,
+          timeoutMs: 10000
+        });
+        return sendJson(res, 200, { ok: true, recipients });
       }
 
       if (method === 'GET' && pathname === '/api/teacher/subjects') {
@@ -370,6 +512,7 @@ async function handleApi(req, res, url) {
           'Student Name',
           'Roll No',
           'Batch',
+          'Student Email',
           'Exam Title',
           'Score',
           'Total Marks',
@@ -379,6 +522,7 @@ async function handleApi(req, res, url) {
           'Wrong',
           'Skipped',
           'Time Taken (sec)',
+          'Email Status',
           'Submitted At'
         ];
         const lines = [header.map(csvEscape).join(',')];
@@ -387,6 +531,7 @@ async function handleApi(req, res, url) {
             s.studentName,
             s.rollNumber,
             s.batch || '',
+            s.studentEmail || '',
             s.examTitle,
             s.score,
             s.totalMarks,
@@ -396,6 +541,7 @@ async function handleApi(req, res, url) {
             s.wrongCount,
             s.skippedCount,
             s.timeTakenSeconds,
+            s.emailDelivery ? s.emailDelivery.status : 'disabled',
             s.submittedAt
           ].map(csvEscape).join(','));
         }
@@ -418,6 +564,20 @@ async function handleApi(req, res, url) {
       if (method === 'DELETE' && pathname === '/api/teacher/submissions') {
         const examId = url.searchParams.get('examId') || 'all';
         return sendJson(res, 200, store.clearSubmissions(examId));
+      }
+
+      const subEmailMatch = pathname.match(/^\/api\/teacher\/submissions\/([^/]+)\/email$/);
+      if (method === 'POST' && subEmailMatch) {
+        const id = decodeURIComponent(subEmailMatch[1]);
+        const body = await readJsonBody(req);
+        const delivery = await dispatchSubmissionEmail(id, {
+          forceSend: true,
+          customTo: body.toEmail || ''
+        });
+        if (delivery.status === 'failed') {
+          return sendJson(res, 400, { error: delivery.error || 'Email delivery failed.', emailDelivery: delivery });
+        }
+        return sendJson(res, 200, { ok: true, emailDelivery: delivery });
       }
 
       const subMatch = pathname.match(/^\/api\/teacher\/submissions\/([^/]+)$/);

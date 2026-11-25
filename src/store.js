@@ -22,7 +22,20 @@ function createInitialStore() {
       instituteName: 'CodeAura Classroom',
       teacherName: 'Sir',
       teacherPin: '1234',
-      pinChanged: false
+      pinChanged: false,
+      email: {
+        enabled: false,
+        provider: 'gmail',
+        smtpHost: 'smtp.gmail.com',
+        smtpPort: 465,
+        smtpSecure: true,
+        smtpUser: '',
+        smtpPass: '',
+        teacherEmails: '',
+        sendToTeacher: true,
+        sendToStudent: true,
+        requireStudentEmail: false
+      }
     },
     subjects: DEFAULT_SUBJECTS.map((s) => ({ ...s })),
     questions: SEED_QUESTIONS.map((q) => ({
@@ -76,7 +89,21 @@ class ExamStore {
           teacherName: 'Sir',
           teacherPin: '1234',
           pinChanged: false,
-          ...(parsed.settings || {})
+          ...(parsed.settings || {}),
+          email: {
+            enabled: false,
+            provider: 'gmail',
+            smtpHost: 'smtp.gmail.com',
+            smtpPort: 465,
+            smtpSecure: true,
+            smtpUser: '',
+            smtpPass: '',
+            teacherEmails: '',
+            sendToTeacher: true,
+            sendToStudent: true,
+            requireStudentEmail: false,
+            ...((parsed.settings && parsed.settings.email) || {})
+          }
         },
         subjects: Array.isArray(parsed.subjects) && parsed.subjects.length > 0
           ? parsed.subjects
@@ -112,6 +139,8 @@ class ExamStore {
   // ---------- PUBLIC / META ----------
   getPublicInfo() {
     const liveExams = this.data.exams.filter((e) => e.isLive && e.questionIds.length > 0);
+    const email = this.data.settings.email || {};
+    const emailConfigured = Boolean(email.enabled && email.smtpHost && email.smtpUser && email.smtpPass);
     return {
       instituteName: this.data.settings.instituteName,
       teacherName: this.data.settings.teacherName,
@@ -119,8 +148,38 @@ class ExamStore {
       totalSubjects: this.data.subjects.length,
       totalQuestions: this.data.questions.length,
       liveExamsCount: liveExams.length,
-      subjects: this.data.subjects
+      subjects: this.data.subjects,
+      emailEnabled: emailConfigured,
+      sendToStudentEmail: Boolean(emailConfigured && email.sendToStudent),
+      requireStudentEmail: Boolean(emailConfigured && email.requireStudentEmail)
     };
+  }
+
+  getTeacherSettings() {
+    const s = this.data.settings;
+    const e = s.email || {};
+    return {
+      instituteName: s.instituteName,
+      teacherName: s.teacherName,
+      isDefaultPin: !s.pinChanged && s.teacherPin === '1234',
+      email: {
+        enabled: Boolean(e.enabled),
+        provider: e.provider || 'gmail',
+        smtpHost: e.smtpHost || 'smtp.gmail.com',
+        smtpPort: Number(e.smtpPort) || 465,
+        smtpSecure: e.smtpSecure !== false,
+        smtpUser: e.smtpUser || '',
+        hasSmtpPassword: Boolean(e.smtpPass),
+        teacherEmails: e.teacherEmails || '',
+        sendToTeacher: e.sendToTeacher !== false,
+        sendToStudent: e.sendToStudent !== false,
+        requireStudentEmail: Boolean(e.requireStudentEmail)
+      }
+    };
+  }
+
+  getRawEmailConfig() {
+    return { ...(this.data.settings.email || {}) };
   }
 
   // ---------- SETTINGS ----------
@@ -128,7 +187,7 @@ class ExamStore {
     return String(pin || '').trim() === String(this.data.settings.teacherPin);
   }
 
-  updateSettings({ instituteName, teacherName, currentPin, newPin }) {
+  updateSettings({ instituteName, teacherName, currentPin, newPin, email }) {
     if (instituteName && String(instituteName).trim()) {
       this.data.settings.instituteName = String(instituteName).trim().slice(0, 80);
     }
@@ -150,12 +209,30 @@ class ExamStore {
       this.data.settings.teacherPin = trimmedNew;
       this.data.settings.pinChanged = true;
     }
+    if (email && typeof email === 'object') {
+      const cur = this.data.settings.email || {};
+      const next = {
+        ...cur,
+        enabled: email.enabled !== undefined ? Boolean(email.enabled) : Boolean(cur.enabled),
+        provider: email.provider !== undefined ? String(email.provider).trim() : (cur.provider || 'gmail'),
+        smtpHost: email.smtpHost !== undefined ? String(email.smtpHost).trim() : (cur.smtpHost || ''),
+        smtpPort: email.smtpPort !== undefined ? Math.max(1, Math.min(65535, Number(email.smtpPort) || 465)) : (Number(cur.smtpPort) || 465),
+        smtpSecure: email.smtpSecure !== undefined ? Boolean(email.smtpSecure) : (cur.smtpSecure !== false),
+        smtpUser: email.smtpUser !== undefined ? String(email.smtpUser).trim() : (cur.smtpUser || ''),
+        teacherEmails: email.teacherEmails !== undefined ? String(email.teacherEmails).trim() : (cur.teacherEmails || ''),
+        sendToTeacher: email.sendToTeacher !== undefined ? Boolean(email.sendToTeacher) : (cur.sendToTeacher !== false),
+        sendToStudent: email.sendToStudent !== undefined ? Boolean(email.sendToStudent) : (cur.sendToStudent !== false),
+        requireStudentEmail: email.requireStudentEmail !== undefined ? Boolean(email.requireStudentEmail) : Boolean(cur.requireStudentEmail)
+      };
+      if (email.clearSmtpPass) {
+        next.smtpPass = '';
+      } else if (email.smtpPass !== undefined && String(email.smtpPass).trim() !== '') {
+        next.smtpPass = String(email.smtpPass).trim();
+      }
+      this.data.settings.email = next;
+    }
     this.save();
-    return {
-      instituteName: this.data.settings.instituteName,
-      teacherName: this.data.settings.teacherName,
-      isDefaultPin: !this.data.settings.pinChanged && this.data.settings.teacherPin === '1234'
-    };
+    return this.getTeacherSettings();
   }
 
   // ---------- SUBJECTS ----------
@@ -596,9 +673,23 @@ class ExamStore {
     const studentName = String(payload.studentName || '').trim();
     const rollNumber = String(payload.rollNumber || '').trim();
     const batch = String(payload.batch || '').trim();
+    const studentEmail = String(payload.studentEmail || '').trim();
 
     if (!studentName || !rollNumber) {
       const err = new Error('Student Name and Roll Number are required.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const emailCfg = this.data.settings.email || {};
+    const emailEnabled = Boolean(emailCfg.enabled && emailCfg.smtpHost && emailCfg.smtpUser && emailCfg.smtpPass);
+    if (emailEnabled && emailCfg.requireStudentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(studentEmail)) {
+      const err = new Error('A valid Student Email address is required.');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (studentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(studentEmail)) {
+      const err = new Error('Please enter a valid Student Email address.');
       err.statusCode = 400;
       throw err;
     }
@@ -708,6 +799,7 @@ class ExamStore {
       studentName: studentName.slice(0, 80),
       rollNumber: rollNumber.slice(0, 40),
       batch: batch.slice(0, 40),
+      studentEmail: studentEmail.slice(0, 120),
       totalQuestions: examQuestions.length,
       correctCount,
       wrongCount,
@@ -720,6 +812,12 @@ class ExamStore {
       timeTakenSeconds,
       subjectBreakdown: Object.values(subjectStats),
       review,
+      emailDelivery: {
+        status: 'disabled',
+        recipients: [],
+        error: '',
+        sentAt: null
+      },
       submittedAt: new Date().toISOString()
     };
 
@@ -735,6 +833,7 @@ class ExamStore {
         studentName: submission.studentName,
         rollNumber: submission.rollNumber,
         batch: submission.batch,
+        studentEmail: submission.studentEmail,
         totalQuestions: submission.totalQuestions,
         correctCount: submission.correctCount,
         wrongCount: submission.wrongCount,
@@ -745,6 +844,7 @@ class ExamStore {
         passed: submission.passed,
         timeTakenSeconds: submission.timeTakenSeconds,
         subjectBreakdown: submission.subjectBreakdown,
+        emailDelivery: submission.emailDelivery,
         submittedAt: submission.submittedAt,
         reviewHidden: true,
         review: []
@@ -752,6 +852,19 @@ class ExamStore {
     }
 
     return submission;
+  }
+
+  setSubmissionEmailStatus(submissionId, delivery) {
+    const sub = this.data.submissions.find((s) => s.id === submissionId);
+    if (!sub) return null;
+    sub.emailDelivery = {
+      status: delivery.status || 'disabled',
+      recipients: Array.isArray(delivery.recipients) ? delivery.recipients : [],
+      error: delivery.error || '',
+      sentAt: delivery.sentAt || null
+    };
+    this.save();
+    return sub.emailDelivery;
   }
 
   // ---------- TEACHER RESULTS ----------

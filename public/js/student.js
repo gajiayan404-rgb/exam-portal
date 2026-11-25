@@ -11,6 +11,7 @@
 
   const state = {
     liveExams: [],
+    publicInfo: null,
     activeExam: null,
     currentIdx: 0,
     answers: {},       // { [questionId]: optionIndex }
@@ -22,6 +23,7 @@
     studentProfile: {
       name: '',
       rollNumber: '',
+      email: '',
       batch: ''
     }
   };
@@ -32,6 +34,8 @@
   const resultView = document.getElementById('student-result-view');
   const nameInput = document.getElementById('stu-name');
   const rollInput = document.getElementById('stu-roll');
+  const emailInput = document.getElementById('stu-email');
+  const emailLabel = document.getElementById('stu-email-label');
   const batchInput = document.getElementById('stu-batch');
   const modal = document.getElementById('student-modal');
   const modalContent = document.getElementById('student-modal-content');
@@ -42,6 +46,7 @@
       const saved = JSON.parse(sessionStorage.getItem(STUDENT_INFO_KEY) || '{}');
       if (saved.name) nameInput.value = saved.name;
       if (saved.rollNumber) rollInput.value = saved.rollNumber;
+      if (saved.email) emailInput.value = saved.email;
       if (saved.batch) batchInput.value = saved.batch;
     } catch {}
   }
@@ -50,6 +55,7 @@
     state.studentProfile = {
       name: nameInput.value.trim(),
       rollNumber: rollInput.value.trim(),
+      email: emailInput.value.trim(),
       batch: batchInput.value.trim()
     };
     try {
@@ -57,7 +63,7 @@
     } catch {}
   }
 
-  [nameInput, rollInput, batchInput].forEach((inp) => {
+  [nameInput, rollInput, emailInput, batchInput].forEach((inp) => {
     inp.addEventListener('input', saveProfile);
   });
 
@@ -88,8 +94,19 @@
     try {
       const data = await apiFetch('/api/student/exams');
       state.liveExams = data.exams || [];
+      state.publicInfo = data.info || {};
       if (data.info?.instituteName) {
         document.getElementById('student-brand-name').textContent = data.info.instituteName;
+      }
+      if (data.info?.requireStudentEmail) {
+        emailLabel.textContent = 'Email Address *';
+        emailInput.required = true;
+      } else if (data.info?.sendToStudentEmail) {
+        emailLabel.textContent = 'Email Address (For score copy)';
+        emailInput.required = false;
+      } else {
+        emailLabel.textContent = 'Email Address (Optional)';
+        emailInput.required = false;
       }
       renderLiveExams();
     } catch (err) {
@@ -194,6 +211,18 @@
     if (!state.studentProfile.rollNumber) {
       rollInput.focus();
       showToast('Please enter your Roll Number / Student ID.', 'error');
+      return;
+    }
+    const emailVal = state.studentProfile.email;
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal);
+    if (state.publicInfo?.requireStudentEmail && !emailValid) {
+      emailInput.focus();
+      showToast('Please enter a valid Email Address before starting.', 'error');
+      return;
+    }
+    if (emailVal && !emailValid) {
+      emailInput.focus();
+      showToast('Please enter a valid Email Address.', 'error');
       return;
     }
 
@@ -449,6 +478,7 @@
         body: {
           studentName: state.studentProfile.name,
           rollNumber: state.studentProfile.rollNumber,
+          studentEmail: state.studentProfile.email,
           batch: state.studentProfile.batch,
           answers: state.answers,
           timeTakenSeconds: elapsedSeconds
@@ -568,6 +598,16 @@
           <button type="button" id="back-to-lobby-btn" class="btn btn-primary">← Back to Live Exams</button>
           <button type="button" id="print-result-btn" class="btn btn-secondary">🖨 Print / Save Score Card</button>
         </div>
+
+        ${result.emailDelivery?.status === 'sent' ? `
+          <div class="badge badge-success mt-2" style="padding:8px 14px;border-radius:10px;white-space:normal;">
+            📧 Score report automatically emailed to: <strong>${escapeHtml((result.emailDelivery.recipients || []).join(', '))}</strong>
+          </div>
+        ` : result.emailDelivery?.status === 'failed' ? `
+          <div class="badge badge-warning mt-2" style="padding:8px 14px;border-radius:10px;white-space:normal;">
+            ⚠️ Marks saved, but auto-email could not be delivered (${escapeHtml(result.emailDelivery.error || 'SMTP error')}). Sir can resend from Teacher Portal.
+          </div>
+        ` : ''}
       </div>
 
       <div class="card stack-md">

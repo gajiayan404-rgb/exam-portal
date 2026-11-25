@@ -303,6 +303,7 @@
                 <th>%</th>
                 <th>Status</th>
                 <th>Correct / Wrong / Skip</th>
+                <th>Email</th>
                 <th>Time</th>
                 <th>Submitted</th>
                 <th>Actions</th>
@@ -316,31 +317,120 @@
 
     <!-- TAB 5: SETTINGS -->
     <section id="tab-settings" class="tab-panel hidden">
-      <div class="card" style="max-width:620px;">
-        <h2 class="card-title">Classroom &amp; Security Settings</h2>
-        <p class="card-subtitle">Customize your institute name and update Sir's login PIN.</p>
-        <form id="settings-form" class="stack-md mt-2">
-          <div class="form-group">
-            <label for="set-institute">Classroom / Institute Name</label>
-            <input id="set-institute" type="text" class="input" required />
+      <div class="builder-layout" style="grid-template-columns: 1fr 1.25fr;">
+        <div class="card">
+          <h2 class="card-title">Classroom &amp; Security Settings</h2>
+          <p class="card-subtitle">Customize your institute name and update Sir's login PIN.</p>
+          <form id="settings-form" class="stack-md mt-2">
+            <div class="form-group">
+              <label for="set-institute">Classroom / Institute Name</label>
+              <input id="set-institute" type="text" class="input" required />
+            </div>
+            <div class="form-group">
+              <label for="set-teacher">Teacher Display Name</label>
+              <input id="set-teacher" type="text" class="input" required />
+            </div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:6px 0;" />
+            <div class="form-group">
+              <label for="set-current-pin">Current PIN (only required if changing PIN)</label>
+              <input id="set-current-pin" type="password" class="input" placeholder="Enter current PIN" />
+            </div>
+            <div class="form-group">
+              <label for="set-new-pin">New Teacher PIN (min 4 characters)</label>
+              <input id="set-new-pin" type="password" class="input" placeholder="Leave blank to keep existing PIN" />
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary">Save General Settings</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header" style="margin-bottom:8px;">
+            <div>
+              <h2 class="card-title">📧 Auto-Email Marks on Exam Submit</h2>
+              <p class="card-subtitle">Automatically email checked marks &amp; answer report whenever a student submits.</p>
+            </div>
+            <span class="badge badge-neutral" id="email-status-badge">Disabled</span>
           </div>
-          <div class="form-group">
-            <label for="set-teacher">Teacher Display Name</label>
-            <input id="set-teacher" type="text" class="input" required />
-          </div>
-          <hr style="border:none;border-top:1px solid var(--border);margin:6px 0;" />
-          <div class="form-group">
-            <label for="set-current-pin">Current PIN (only required if changing PIN)</label>
-            <input id="set-current-pin" type="password" class="input" placeholder="Enter current PIN" />
-          </div>
-          <div class="form-group">
-            <label for="set-new-pin">New Teacher PIN (min 4 characters)</label>
-            <input id="set-new-pin" type="password" class="input" placeholder="Leave blank to keep existing PIN" />
-          </div>
-          <div>
-            <button type="submit" class="btn btn-primary">Save Settings</button>
-          </div>
-        </form>
+
+          <form id="email-settings-form" class="stack-md">
+            <label class="checkbox-row" style="background:var(--primary-soft);padding:10px 12px;border-radius:10px;border:1px solid var(--primary-border);">
+              <input type="checkbox" id="set-email-enabled" />
+              <span><strong>Enable Automatic Email Sending on Submit</strong></span>
+            </label>
+
+            <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+              <div class="form-group">
+                <label for="set-email-provider">Email Provider</label>
+                <select id="set-email-provider" class="select">
+                  <option value="gmail">Gmail (App Password)</option>
+                  <option value="outlook">Outlook / Office 365</option>
+                  <option value="yahoo">Yahoo Mail</option>
+                  <option value="custom">Custom SMTP</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="set-smtp-secure">Encryption</label>
+                <select id="set-smtp-secure" class="select">
+                  <option value="ssl">SSL / TLS (Port 465)</option>
+                  <option value="starttls">STARTTLS (Port 587)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="set-smtp-host">SMTP Host</label>
+                <input id="set-smtp-host" type="text" class="input" placeholder="smtp.gmail.com" />
+              </div>
+              <div class="form-group">
+                <label for="set-smtp-port">SMTP Port</label>
+                <input id="set-smtp-port" type="number" class="input" value="465" />
+              </div>
+            </div>
+
+            <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+              <div class="form-group">
+                <label for="set-smtp-user">Sender Email (SMTP Username)</label>
+                <input id="set-smtp-user" type="email" class="input" placeholder="yourclass@gmail.com" />
+              </div>
+              <div class="form-group">
+                <label for="set-smtp-pass">
+                  App Password / SMTP Password
+                  <span id="smtp-pass-status" class="text-xs text-muted"></span>
+                </label>
+                <input id="set-smtp-pass" type="password" class="input" placeholder="16-char Gmail App Password" autocomplete="new-password" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="set-teacher-emails">Sir / Teacher Email(s) to Receive Student Marks</label>
+              <input id="set-teacher-emails" type="text" class="input" placeholder="sir@gmail.com (separate multiple with commas)" />
+            </div>
+
+            <div class="stack-sm" style="background:var(--surface-muted);padding:12px;border-radius:10px;">
+              <label class="checkbox-row">
+                <input type="checkbox" id="set-send-teacher" checked />
+                <span>Send full marks &amp; checked paper email to <strong>Sir / Teacher</strong></span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" id="set-send-student" checked />
+                <span>Also send score report copy to <strong>Student's Email</strong> (if entered)</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" id="set-require-student-email" />
+                <span>Require Student Email before starting an exam</span>
+              </label>
+            </div>
+
+            <div class="text-xs text-muted" style="background:var(--warning-soft);border:1px solid var(--warning-border);padding:9px 12px;border-radius:8px;">
+              💡 <strong>Gmail Tip:</strong> Enable 2-Step Verification on your Google Account, then generate a 16-character <strong>App Password</strong> under Google Account → Security → App Passwords and paste it above.
+            </div>
+
+            <div class="flex-row">
+              <button type="submit" class="btn btn-primary">Save Email Settings</button>
+              <button type="button" id="test-email-btn" class="btn btn-secondary">✉️ Send Test Email</button>
+            </div>
+          </form>
+        </div>
       </div>
     </section>
   </main>

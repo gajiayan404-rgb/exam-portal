@@ -13,6 +13,7 @@
 
   const state = {
     info: null,
+    settings: null,
     subjects: [],
     questions: [],
     exams: [],
@@ -101,6 +102,7 @@
   async function loadBootstrap() {
     const data = await apiFetch('/api/teacher/bootstrap', { auth: true });
     state.info = data.info;
+    state.settings = data.settings || null;
     state.subjects = data.subjects || [];
     state.questions = data.questions || [];
     state.exams = data.exams || [];
@@ -208,6 +210,38 @@
 
     document.getElementById('set-institute').value = state.info?.instituteName || '';
     document.getElementById('set-teacher').value = state.info?.teacherName || 'Sir';
+    populateEmailSettings();
+  }
+
+  function populateEmailSettings() {
+    const em = state.settings?.email || {};
+    document.getElementById('set-email-enabled').checked = Boolean(em.enabled);
+    document.getElementById('set-email-provider').value = em.provider || 'gmail';
+    document.getElementById('set-smtp-host').value = em.smtpHost || 'smtp.gmail.com';
+    document.getElementById('set-smtp-port').value = em.smtpPort || 465;
+    document.getElementById('set-smtp-secure').value = em.smtpSecure === false ? 'starttls' : 'ssl';
+    document.getElementById('set-smtp-user').value = em.smtpUser || '';
+    document.getElementById('set-smtp-pass').value = '';
+    document.getElementById('set-smtp-pass').placeholder = em.hasSmtpPassword
+      ? 'Saved (leave blank to keep existing)'
+      : '16-char Gmail App Password';
+    document.getElementById('smtp-pass-status').textContent = em.hasSmtpPassword ? '✓ Saved' : '';
+    document.getElementById('set-teacher-emails').value = em.teacherEmails || '';
+    document.getElementById('set-send-teacher').checked = em.sendToTeacher !== false;
+    document.getElementById('set-send-student').checked = em.sendToStudent !== false;
+    document.getElementById('set-require-student-email').checked = Boolean(em.requireStudentEmail);
+
+    const badge = document.getElementById('email-status-badge');
+    if (em.enabled && em.smtpHost && em.smtpUser && em.hasSmtpPassword) {
+      badge.className = 'badge badge-success';
+      badge.textContent = 'Active';
+    } else if (em.enabled) {
+      badge.className = 'badge badge-warning';
+      badge.textContent = 'Needs Credentials';
+    } else {
+      badge.className = 'badge badge-neutral';
+      badge.textContent = 'Disabled';
+    }
   }
 
   function renderAll() {
@@ -1055,8 +1089,19 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
     const rows = getFilteredSubmissions();
     const tbody = document.getElementById('results-table-body');
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:28px;color:var(--text-muted);">No student submissions yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--text-muted);">No student submissions yet.</td></tr>`;
       return;
+    }
+
+    function renderEmailBadge(delivery) {
+      const st = delivery?.status || 'disabled';
+      if (st === 'sent') {
+        return `<span class="badge badge-success" title="Sent to: ${escapeHtml((delivery.recipients || []).join(', '))}">✓ Sent</span>`;
+      }
+      if (st === 'failed') {
+        return `<span class="badge badge-danger" title="${escapeHtml(delivery.error || 'Email failed')}">✕ Failed</span>`;
+      }
+      return `<span class="badge badge-neutral">– Off</span>`;
     }
 
     tbody.innerHTML = rows.map((s, idx) => `
@@ -1065,6 +1110,7 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
         <td>
           <strong>${escapeHtml(s.studentName)}</strong>
           ${s.batch ? `<div class="text-xs text-muted">${escapeHtml(s.batch)}</div>` : ''}
+          ${s.studentEmail ? `<div class="text-xs text-muted">${escapeHtml(s.studentEmail)}</div>` : ''}
         </td>
         <td><span class="font-mono">${escapeHtml(s.rollNumber)}</span></td>
         <td>${escapeHtml(s.examTitle)}</td>
@@ -1076,11 +1122,13 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
           <span style="color:var(--danger);font-weight:600;">✕${s.wrongCount}</span> /
           <span class="text-muted">–${s.skippedCount}</span>
         </td>
+        <td>${renderEmailBadge(s.emailDelivery)}</td>
         <td class="font-mono text-xs">${formatDuration(s.timeTakenSeconds)}</td>
         <td class="text-xs text-muted">${escapeHtml(formatDateTime(s.submittedAt))}</td>
         <td>
           <div class="flex-row">
             <button type="button" class="btn btn-secondary btn-sm view-sub-btn" data-id="${escapeHtml(s.id)}">View Paper</button>
+            <button type="button" class="btn btn-soft-primary btn-sm send-sub-email-btn" data-id="${escapeHtml(s.id)}" title="Send/Resend Result Email">📧</button>
             <button type="button" class="btn btn-soft-danger btn-sm del-sub-btn" data-id="${escapeHtml(s.id)}">✕</button>
           </div>
         </td>
@@ -1091,6 +1139,26 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
       btn.addEventListener('click', () => {
         const sub = state.submissions.find((item) => item.id === btn.dataset.id);
         if (sub) openSubmissionModal(sub);
+      });
+    });
+
+    tbody.querySelectorAll('.send-sub-email-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const res = await apiFetch(`/api/teacher/submissions/${encodeURIComponent(btn.dataset.id)}/email`, {
+            method: 'POST',
+            auth: true,
+            body: {}
+          });
+          showToast(`Email sent to ${(res.emailDelivery.recipients || []).join(', ')}`, 'success');
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+          await loadBootstrap();
+        } finally {
+          btn.disabled = false;
+        }
       });
     });
 
@@ -1147,18 +1215,48 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
       </div>
     `).join('');
 
+    const emailInfo = sub.emailDelivery || {};
+    const emailLine = emailInfo.status === 'sent'
+      ? `<div class="badge badge-success mb-2">📧 Emailed to: ${escapeHtml((emailInfo.recipients || []).join(', '))}</div>`
+      : emailInfo.status === 'failed'
+        ? `<div class="badge badge-danger mb-2">✕ Email failed: ${escapeHtml(emailInfo.error || 'Error')}</div>`
+        : '';
+
     openModal(`
       <div class="flex-between mb-2">
         <div>
           <h2 class="card-title">${escapeHtml(sub.studentName)} (${escapeHtml(sub.rollNumber)})</h2>
-          <p class="card-subtitle">${escapeHtml(sub.examTitle)} • Score: <strong>${sub.score}/${sub.totalMarks} (${sub.percentage}%)</strong></p>
+          <p class="card-subtitle">${escapeHtml(sub.examTitle)} • Score: <strong>${sub.score}/${sub.totalMarks} (${sub.percentage}%)</strong>${sub.studentEmail ? ` • ${escapeHtml(sub.studentEmail)}` : ''}</p>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+        <div class="flex-row">
+          <button type="button" class="btn btn-soft-primary btn-sm" id="modal-resend-email-btn">📧 Send Email</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+        </div>
       </div>
+      ${emailLine}
       <div class="flex-row mb-2">${subjCards}</div>
       <div class="stack-md">${reviewHtml}</div>
     `);
     document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-resend-email-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('modal-resend-email-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+      try {
+        const res = await apiFetch(`/api/teacher/submissions/${encodeURIComponent(sub.id)}/email`, {
+          method: 'POST',
+          auth: true,
+          body: {}
+        });
+        showToast(`Email sent to ${(res.emailDelivery.recipients || []).join(', ')}`, 'success');
+        await loadBootstrap();
+        closeModal();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = '📧 Send Email';
+      }
+    });
   }
 
   document.getElementById('results-exam-filter').addEventListener('change', renderResults);
@@ -1231,14 +1329,86 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
       });
       document.getElementById('set-current-pin').value = '';
       document.getElementById('set-new-pin').value = '';
+      state.settings = res.settings;
       state.info = { ...state.info, ...res.settings };
       document.getElementById('teacher-brand-name').textContent = state.info.instituteName;
       if (!state.info.isDefaultPin) {
         defaultPinHint.classList.add('hidden');
       }
-      showToast('Settings saved!', 'success');
+      showToast('General settings saved!', 'success');
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  });
+
+  const SMTP_PRESETS = {
+    gmail: { host: 'smtp.gmail.com', port: 465, secure: 'ssl' },
+    outlook: { host: 'smtp-mail.outlook.com', port: 587, secure: 'starttls' },
+    yahoo: { host: 'smtp.mail.yahoo.com', port: 465, secure: 'ssl' }
+  };
+
+  document.getElementById('set-email-provider').addEventListener('change', (e) => {
+    const preset = SMTP_PRESETS[e.target.value];
+    if (preset) {
+      document.getElementById('set-smtp-host').value = preset.host;
+      document.getElementById('set-smtp-port').value = preset.port;
+      document.getElementById('set-smtp-secure').value = preset.secure;
+    }
+  });
+
+  document.getElementById('set-smtp-secure').addEventListener('change', (e) => {
+    document.getElementById('set-smtp-port').value = e.target.value === 'ssl' ? 465 : 587;
+  });
+
+  function collectEmailPayload() {
+    return {
+      enabled: document.getElementById('set-email-enabled').checked,
+      provider: document.getElementById('set-email-provider').value,
+      smtpHost: document.getElementById('set-smtp-host').value.trim(),
+      smtpPort: Number(document.getElementById('set-smtp-port').value) || 465,
+      smtpSecure: document.getElementById('set-smtp-secure').value === 'ssl',
+      smtpUser: document.getElementById('set-smtp-user').value.trim(),
+      smtpPass: document.getElementById('set-smtp-pass').value.trim(),
+      teacherEmails: document.getElementById('set-teacher-emails').value.trim(),
+      sendToTeacher: document.getElementById('set-send-teacher').checked,
+      sendToStudent: document.getElementById('set-send-student').checked,
+      requireStudentEmail: document.getElementById('set-require-student-email').checked
+    };
+  }
+
+  document.getElementById('email-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/api/teacher/settings', {
+        method: 'PUT',
+        auth: true,
+        body: { email: collectEmailPayload() }
+      });
+      state.settings = res.settings;
+      populateEmailSettings();
+      showToast('Email settings saved!', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('test-email-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('test-email-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {
+      const payload = collectEmailPayload();
+      const res = await apiFetch('/api/teacher/email/test', {
+        method: 'POST',
+        auth: true,
+        body: payload
+      });
+      showToast(`Test email sent to ${(res.recipients || []).join(', ')}!`, 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '✉️ Send Test Email';
     }
   });
 
