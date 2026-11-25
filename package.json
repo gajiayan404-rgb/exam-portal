@@ -1,0 +1,19 @@
+{
+  "name": "codeaura-exam-portal",
+  "version": "1.0.0",
+  "description": "CodeAura Classroom MCQ Exam Platform with separate Teacher and Student portals for HTML, CSS, JavaScript, Python and custom subjects.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "exam",
+    "mcq",
+    "classroom",
+    "html",
+    "css",
+    "javascript",
+    "python"
+  ],
+  "license": "MIT"
+}

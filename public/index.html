@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeAura Exam Portal — Classroom MCQ System</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">
+        <div class="brand-logo">CA</div>
+        <div>
+          <div class="brand-title" id="brand-name">CodeAura Classroom</div>
+          <div class="brand-sub">Programming MCQ Examination Portal</div>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <a href="/student" class="btn btn-secondary btn-sm">Student Portal</a>
+        <a href="/teacher" class="btn btn-primary btn-sm">Sir / Teacher Portal</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container" style="padding-bottom: 56px;">
+    <section class="hero">
+      <span class="badge badge-primary" id="live-status-pill">
+        <span class="live-dot"></span> Checking live exams...
+      </span>
+      <h1>Smart Classroom MCQ Exam Portal</h1>
+      <p>
+        Sir selects MCQs from built-in programming banks (HTML, CSS, JavaScript, Python &amp; more) or adds custom questions — students receive the exact test live and get instant auto-checked marks.
+      </p>
+
+      <div class="flex-row" style="justify-content:center; margin-top: 18px;" id="subject-pills"></div>
+    </section>
+
+    <section class="portal-cards">
+      <div class="portal-card">
+        <div>
+          <div class="flex-between">
+            <div class="portal-icon" style="background:#eef2ff;color:#4f46e5;">🎓</div>
+            <span class="badge badge-success" id="student-live-badge">Live Exams Ready</span>
+          </div>
+          <h2 style="margin:14px 0 6px;font-size:22px;">Student Portal</h2>
+          <p class="text-muted text-sm" style="margin:0;">
+            For students in class to attempt the live MCQ test assigned by Sir and view instant auto-graded scores.
+          </p>
+          <ul class="portal-features">
+            <li>Enter Name &amp; Roll Number to begin</li>
+            <li>Exact MCQs selected by Sir appear automatically</li>
+            <li>Live countdown timer &amp; question navigation grid</li>
+            <li>Automatic checking, total marks &amp; answer review</li>
+          </ul>
+        </div>
+        <div class="flex-row">
+          <a href="/student" class="btn btn-primary btn-lg" style="width:100%;">Open Student Portal →</a>
+        </div>
+      </div>
+
+      <div class="portal-card">
+        <div>
+          <div class="flex-between">
+            <div class="portal-icon" style="background:#ecfdf5;color:#059669;">👨‍🏫</div>
+            <span class="badge badge-neutral">PIN Protected</span>
+          </div>
+          <h2 style="margin:14px 0 6px;font-size:22px;">Sir / Teacher Portal</h2>
+          <p class="text-muted text-sm" style="margin:0;">
+            Separate control panel for Sir to pick or auto-select MCQs, publish live tests, and monitor class marks.
+          </p>
+          <ul class="portal-features">
+            <li>120+ built-in MCQs (HTML, CSS, JavaScript, Python)</li>
+            <li>Manual checkbox selection OR 1-click Auto-Pick MCQs</li>
+            <li>Add custom MCQs, bulk import &amp; add new subjects</li>
+            <li>Live student leaderboard, answer sheets &amp; CSV export</li>
+          </ul>
+        </div>
+        <div class="flex-row">
+          <a href="/teacher" class="btn btn-secondary btn-lg" style="width:100%;">Open Teacher Portal →</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="card mt-3 hidden" id="lan-share-card">
+      <div class="flex-between">
+        <div>
+          <h3 style="margin:0 0 4px;font-size:16px;">Classroom Wi-Fi / LAN Share Link for Students</h3>
+          <p class="text-muted text-sm" style="margin:0;">
+            Students on the same classroom Wi-Fi can open this URL on their phone or PC browser:
+          </p>
+        </div>
+        <div class="flex-row" id="lan-links-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/landing.js"></script>
+</body>
+</html>

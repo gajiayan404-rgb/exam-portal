@@ -1,0 +1,1246 @@
+(function () {
+  const {
+    escapeHtml,
+    getTeacherToken,
+    setTeacherToken,
+    apiFetch,
+    formatDuration,
+    formatDateTime,
+    showToast,
+    renderSubjectBadge,
+    renderDifficultyBadge
+  } = window.CodeAura;
+
+  const state = {
+    info: null,
+    subjects: [],
+    questions: [],
+    exams: [],
+    submissions: [],
+    activeTab: 'overview',
+    selectedQuestionIds: new Set(),
+    editingExamId: null,
+    modalCleanup: null
+  };
+
+  // DOM References
+  const loginView = document.getElementById('teacher-login-view');
+  const appView = document.getElementById('teacher-app-view');
+  const loginForm = document.getElementById('teacher-login-form');
+  const pinInput = document.getElementById('teacher-pin-input');
+  const defaultPinHint = document.getElementById('default-pin-hint');
+  const loginErrorMsg = document.getElementById('login-error-msg');
+  const logoutBtn = document.getElementById('teacher-logout-btn');
+  const copyUrlBtn = document.getElementById('copy-student-url-btn');
+  const modal = document.getElementById('teacher-modal');
+  const modalContent = document.getElementById('teacher-modal-content');
+
+  // ---------- Modal Helpers ----------
+  function openModal(html) {
+    modalContent.innerHTML = html;
+    modal.classList.remove('hidden');
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    modalContent.innerHTML = '';
+  }
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  // ---------- Auth & Initialization ----------
+  async function checkPublicBanner() {
+    try {
+      const info = await apiFetch('/api/public/info');
+      state.info = info;
+      document.getElementById('teacher-brand-name').textContent = info.instituteName || 'CodeAura Classroom';
+      if (info.isDefaultPin) {
+        defaultPinHint.classList.remove('hidden');
+      } else {
+        defaultPinHint.classList.add('hidden');
+      }
+    } catch {}
+  }
+
+  async function initSession() {
+    await checkPublicBanner();
+    const token = getTeacherToken();
+    if (!token) {
+      showLogin();
+      return;
+    }
+    try {
+      await apiFetch('/api/teacher/verify', { auth: true });
+      await enterWorkspace();
+    } catch {
+      setTeacherToken('');
+      showLogin();
+    }
+  }
+
+  function showLogin() {
+    loginView.classList.remove('hidden');
+    appView.classList.add('hidden');
+    logoutBtn.classList.add('hidden');
+    copyUrlBtn.classList.add('hidden');
+    pinInput.value = '';
+    pinInput.focus();
+  }
+
+  async function enterWorkspace() {
+    loginView.classList.add('hidden');
+    appView.classList.remove('hidden');
+    logoutBtn.classList.remove('hidden');
+    copyUrlBtn.classList.remove('hidden');
+    await loadBootstrap();
+    connectLiveEvents();
+  }
+
+  async function loadBootstrap() {
+    const data = await apiFetch('/api/teacher/bootstrap', { auth: true });
+    state.info = data.info;
+    state.subjects = data.subjects || [];
+    state.questions = data.questions || [];
+    state.exams = data.exams || [];
+    state.submissions = data.submissions || [];
+
+    document.getElementById('teacher-brand-name').textContent = state.info.instituteName || 'CodeAura Classroom';
+    populateDropdowns();
+    renderAll();
+  }
+
+  let eventSource = null;
+  function connectLiveEvents() {
+    if (eventSource) {
+      eventSource.close();
+    }
+    eventSource = new EventSource('/api/events');
+    eventSource.addEventListener('submission-created', async (ev) => {
+      try {
+        const payload = JSON.parse(ev.data);
+        showToast(`New submission: ${payload.studentName} scored ${payload.score}/${payload.totalMarks}`, 'success');
+        const res = await apiFetch('/api/teacher/submissions', { auth: true });
+        state.submissions = res.submissions || [];
+        renderOverview();
+        renderResults();
+      } catch {}
+    });
+  }
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginErrorMsg.classList.add('hidden');
+    try {
+      const data = await apiFetch('/api/teacher/login', {
+        method: 'POST',
+        body: { pin: pinInput.value }
+      });
+      setTeacherToken(data.token);
+      await enterWorkspace();
+      showToast('Welcome back, Sir!', 'success');
+    } catch (err) {
+      loginErrorMsg.textContent = err.message;
+      loginErrorMsg.classList.remove('hidden');
+    }
+  });
+
+  logoutBtn.addEventListener('click', () => {
+    setTeacherToken('');
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    showLogin();
+  });
+
+  copyUrlBtn.addEventListener('click', async () => {
+    const studentUrl = `${window.location.origin}/student`;
+    try {
+      await navigator.clipboard.writeText(studentUrl);
+      showToast(`Copied: ${studentUrl}`, 'success');
+    } catch {
+      showToast(studentUrl, 'info');
+    }
+  });
+
+  // ---------- Tabs ----------
+  function switchTab(tabName) {
+    state.activeTab = tabName;
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.tab-panel').forEach((panel) => {
+      panel.classList.toggle('hidden', panel.id !== `tab-${tabName}`);
+    });
+  }
+
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  document.getElementById('go-create-exam-btn').addEventListener('click', () => {
+    resetBuilderForm();
+    switchTab('builder');
+  });
+
+  // ---------- Dropdown Population ----------
+  function populateDropdowns() {
+    const subjOptions = `<option value="all">All Subjects (${state.questions.length})</option>` +
+      state.subjects.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} (${s.questionCount ?? 0})</option>`).join('');
+
+    const builderSubj = document.getElementById('builder-subj-filter');
+    const prevBuilder = builderSubj.value || 'all';
+    builderSubj.innerHTML = subjOptions;
+    builderSubj.value = prevBuilder;
+
+    const bankSubj = document.getElementById('bank-subj-filter');
+    const prevBank = bankSubj.value || 'all';
+    bankSubj.innerHTML = subjOptions;
+    bankSubj.value = prevBank;
+
+    const resultsExam = document.getElementById('results-exam-filter');
+    const prevResExam = resultsExam.value || 'all';
+    resultsExam.innerHTML = `<option value="all">All Exams (${state.submissions.length})</option>` +
+      state.exams.map((ex) => `<option value="${escapeHtml(ex.id)}">${escapeHtml(ex.title)} (${ex.submissionsCount})</option>`).join('');
+    resultsExam.value = prevResExam;
+
+    document.getElementById('set-institute').value = state.info?.instituteName || '';
+    document.getElementById('set-teacher').value = state.info?.teacherName || 'Sir';
+  }
+
+  function renderAll() {
+    renderOverview();
+    renderBuilderQuestions();
+    renderSelectedSummary();
+    renderBank();
+    renderResults();
+  }
+
+  function getSubjectMap() {
+    return new Map(state.subjects.map((s) => [s.id, s]));
+  }
+
+  // ---------- TAB 1: OVERVIEW ----------
+  function renderOverview() {
+    const liveCount = state.exams.filter((e) => e.isLive).length;
+    const totalSubs = state.submissions.length;
+    const avgPct = totalSubs > 0
+      ? (state.submissions.reduce((acc, s) => acc + (Number(s.percentage) || 0), 0) / totalSubs).toFixed(1)
+      : '0.0';
+
+    document.getElementById('overview-stats').innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Live Student Exams</div>
+        <div class="stat-value" style="color:var(--success);">${liveCount}</div>
+        <div class="stat-hint">Out of ${state.exams.length} total exam${state.exams.length === 1 ? '' : 's'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">MCQ Question Bank</div>
+        <div class="stat-value" style="color:var(--primary);">${state.questions.length}</div>
+        <div class="stat-hint">Across ${state.subjects.length} programming subjects</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Student Submissions</div>
+        <div class="stat-value">${totalSubs}</div>
+        <div class="stat-hint">Auto-checked &amp; saved</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Class Average</div>
+        <div class="stat-value" style="color:var(--warning);">${avgPct}%</div>
+        <div class="stat-hint">Across all submissions</div>
+      </div>
+    `;
+
+    // Share links
+    const shareContainer = document.getElementById('teacher-share-links');
+    const urls = new Set([`${window.location.origin}/student`]);
+    if (Array.isArray(state.info?.lanUrls)) {
+      for (const u of state.info.lanUrls) urls.add(`${u}/student`);
+    }
+    shareContainer.innerHTML = [...urls].map((u) => `
+      <div class="flex-row" style="background:#fff;padding:6px 10px;border-radius:8px;border:1px solid var(--primary-border);">
+        <code class="font-mono text-sm">${escapeHtml(u)}</code>
+        <button type="button" class="btn btn-primary btn-sm share-copy-btn" data-url="${escapeHtml(u)}">Copy</button>
+      </div>
+    `).join('');
+
+    shareContainer.querySelectorAll('.share-copy-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(btn.dataset.url);
+          showToast('Copied Student Portal URL!', 'success');
+        } catch {
+          showToast(btn.dataset.url, 'info');
+        }
+      });
+    });
+
+    // Exams list
+    const listEl = document.getElementById('exams-list-container');
+    if (state.exams.length === 0) {
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <p style="margin:0 0 10px;font-weight:600;">No exams created yet.</p>
+          <button type="button" class="btn btn-primary" id="empty-create-exam-btn">Create &amp; Select MCQs Now</button>
+        </div>
+      `;
+      document.getElementById('empty-create-exam-btn').addEventListener('click', () => {
+        resetBuilderForm();
+        switchTab('builder');
+      });
+      return;
+    }
+
+    listEl.innerHTML = state.exams.map((exam) => {
+      const subjBadges = (exam.subjectBreakdown || []).map((sb) => `
+        <span class="badge" style="color:${escapeHtml(sb.color)};background:${escapeHtml(sb.bgColor)};border-color:${escapeHtml(sb.color)}33;">
+          ${escapeHtml(sb.name)}: ${sb.count}
+        </span>
+      `).join('');
+
+      return `
+        <div class="card card-compact" style="border-color:${exam.isLive ? 'var(--success-border)' : 'var(--border)'};background:${exam.isLive ? '#fcfffd' : '#fff'};">
+          <div class="flex-between">
+            <div style="flex:1;min-width:240px;">
+              <div class="flex-row">
+                ${exam.isLive
+                  ? `<span class="badge badge-success"><span class="live-dot"></span> LIVE ON STUDENT PORTAL</span>`
+                  : `<span class="badge badge-neutral">DRAFT (HIDDEN)</span>`
+                }
+                <strong style="font-size:16.5px;">${escapeHtml(exam.title)}</strong>
+              </div>
+              ${exam.description ? `<p class="text-muted text-sm" style="margin:6px 0 0;">${escapeHtml(exam.description)}</p>` : ''}
+              <div class="flex-row mt-1">
+                <span class="badge badge-primary">${exam.questionCount} MCQs</span>
+                <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
+                <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
+                <span class="badge badge-neutral">📝 ${exam.submissionsCount} Submissions</span>
+                ${subjBadges}
+              </div>
+            </div>
+            <div class="flex-row">
+              <button type="button" class="btn btn-sm ${exam.isLive ? 'btn-warning' : 'btn-success'} toggle-live-btn" data-id="${escapeHtml(exam.id)}" data-live="${exam.isLive ? '1' : '0'}">
+                ${exam.isLive ? '⏸ Pause / Hide' : '▶ Go Live'}
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm edit-exam-btn" data-id="${escapeHtml(exam.id)}">
+                ✏️ Edit MCQs
+              </button>
+              <button type="button" class="btn btn-soft-primary btn-sm view-exam-results-btn" data-id="${escapeHtml(exam.id)}">
+                📊 Marks
+              </button>
+              <button type="button" class="btn btn-soft-danger btn-sm delete-exam-btn" data-id="${escapeHtml(exam.id)}">
+                🗑
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('.toggle-live-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const currentlyLive = btn.dataset.live === '1';
+        try {
+          await apiFetch(`/api/teacher/exams/${encodeURIComponent(btn.dataset.id)}/live`, {
+            method: 'PATCH',
+            auth: true,
+            body: { isLive: !currentlyLive }
+          });
+          showToast(!currentlyLive ? 'Exam is now LIVE on Student Portal!' : 'Exam paused (hidden from students).', 'success');
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.edit-exam-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const exam = state.exams.find((e) => e.id === btn.dataset.id);
+        if (exam) loadExamIntoBuilder(exam);
+      });
+    });
+
+    listEl.querySelectorAll('.view-exam-results-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.getElementById('results-exam-filter').value = btn.dataset.id;
+        renderResults();
+        switchTab('results');
+      });
+    });
+
+    listEl.querySelectorAll('.delete-exam-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this exam? (Student results already submitted remain saved in Results unless cleared.)')) return;
+        try {
+          await apiFetch(`/api/teacher/exams/${encodeURIComponent(btn.dataset.id)}`, {
+            method: 'DELETE',
+            auth: true
+          });
+          showToast('Exam deleted.', 'info');
+          if (state.editingExamId === btn.dataset.id) {
+            resetBuilderForm();
+          }
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+  }
+
+  // ---------- TAB 2: EXAM BUILDER & MCQ SELECTOR ----------
+  function getFilteredBuilderQuestions() {
+    const subj = document.getElementById('builder-subj-filter').value;
+    const diff = document.getElementById('builder-diff-filter').value;
+    const search = document.getElementById('builder-search-filter').value.trim().toLowerCase();
+
+    return state.questions.filter((q) => {
+      if (subj !== 'all' && q.subjectId !== subj) return false;
+      if (diff !== 'all' && q.difficulty !== diff) return false;
+      if (search) {
+        const match = q.question.toLowerCase().includes(search) ||
+          (q.code && q.code.toLowerCase().includes(search)) ||
+          q.options.some((o) => o.toLowerCase().includes(search));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderBuilderQuestions() {
+    const filtered = getFilteredBuilderQuestions();
+    const subjMap = getSubjectMap();
+    document.getElementById('builder-filter-count').textContent = `${filtered.length} shown`;
+
+    const listEl = document.getElementById('builder-mcq-list');
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="empty-state">No MCQs match this filter. Try clearing the search or adding a new MCQ.</div>`;
+      return;
+    }
+
+    const letters = ['A', 'B', 'C', 'D'];
+    listEl.innerHTML = filtered.map((q) => {
+      const isSelected = state.selectedQuestionIds.has(q.id);
+      const subj = subjMap.get(q.subjectId);
+      return `
+        <label class="mcq-pick-item ${isSelected ? 'selected' : ''}" data-qid="${escapeHtml(q.id)}">
+          <input type="checkbox" ${isSelected ? 'checked' : ''} data-qid="${escapeHtml(q.id)}" />
+          <div style="flex:1;min-width:0;">
+            <div class="flex-row" style="margin-bottom:6px;">
+              ${renderSubjectBadge(subj || { name: q.subjectId })}
+              ${renderDifficultyBadge(q.difficulty)}
+              ${q.isCustom ? '<span class="badge badge-primary">Custom</span>' : ''}
+            </div>
+            <div style="font-weight:600;font-size:14.5px;">${escapeHtml(q.question)}</div>
+            ${q.code ? `<pre class="code-block" style="margin:8px 0;">${escapeHtml(q.code)}</pre>` : ''}
+            <div class="mcq-options-mini">
+              ${q.options.map((opt, idx) => `
+                <div class="mcq-opt-chip ${idx === q.correctIndex ? 'correct' : ''}">
+                  <strong>${letters[idx]}.</strong> ${escapeHtml(opt)}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </label>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const qid = cb.dataset.qid;
+        if (cb.checked) {
+          state.selectedQuestionIds.add(qid);
+        } else {
+          state.selectedQuestionIds.delete(qid);
+        }
+        cb.closest('.mcq-pick-item').classList.toggle('selected', cb.checked);
+        renderSelectedSummary();
+      });
+    });
+  }
+
+  function renderSelectedSummary() {
+    const qMap = new Map(state.questions.map((q) => [q.id, q]));
+    const subjMap = getSubjectMap();
+    const selectedQuestions = [...state.selectedQuestionIds].map((id) => qMap.get(id)).filter(Boolean);
+
+    const marksPerQ = Number(document.getElementById('exam-marks-input').value) || 1;
+    const totalMarks = (selectedQuestions.length * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
+
+    document.getElementById('selected-total-badge').textContent =
+      `${selectedQuestions.length} MCQ${selectedQuestions.length === 1 ? '' : 's'} • ${totalMarks} Marks`;
+
+    const counts = {};
+    for (const q of selectedQuestions) {
+      counts[q.subjectId] = (counts[q.subjectId] || 0) + 1;
+    }
+
+    document.getElementById('selected-subject-breakdown').innerHTML = Object.entries(counts)
+      .map(([sid, count]) => {
+        const s = subjMap.get(sid);
+        return `<span class="badge" style="color:${escapeHtml(s?.color || '#4f46e5')};background:#fff;border-color:var(--border);">${escapeHtml(s?.name || sid)}: ${count}</span>`;
+      }).join('');
+
+    const miniEl = document.getElementById('selected-mini-list');
+    if (selectedQuestions.length === 0) {
+      miniEl.innerHTML = `<div class="text-xs text-muted">No MCQs selected yet. Tick checkboxes on the left or click "Pick Random MCQs".</div>`;
+      return;
+    }
+
+    miniEl.innerHTML = selectedQuestions.map((q, idx) => {
+      const s = subjMap.get(q.subjectId);
+      return `
+        <div class="flex-between" style="background:#fff;padding:6px 9px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:85%;">
+            <strong>${idx + 1}. [${escapeHtml(s?.name || q.subjectId)}]</strong> ${escapeHtml(q.question)}
+          </span>
+          <button type="button" class="btn btn-ghost btn-sm remove-selected-btn" data-qid="${escapeHtml(q.id)}" style="padding:2px 6px;color:var(--danger);">✕</button>
+        </div>
+      `;
+    }).join('');
+
+    miniEl.querySelectorAll('.remove-selected-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.selectedQuestionIds.delete(btn.dataset.qid);
+        renderBuilderQuestions();
+        renderSelectedSummary();
+      });
+    });
+  }
+
+  function resetBuilderForm() {
+    state.editingExamId = null;
+    state.selectedQuestionIds = new Set();
+    document.getElementById('exam-edit-id').value = '';
+    document.getElementById('builder-mode-title').textContent = 'Create New Exam — Select MCQs for Students';
+    document.getElementById('exam-title-input').value = '';
+    document.getElementById('exam-desc-input').value = '';
+    document.getElementById('exam-duration-input').value = '15';
+    document.getElementById('exam-marks-input').value = '1';
+    document.getElementById('exam-neg-input').value = '0';
+    document.getElementById('exam-pass-input').value = '40';
+    document.getElementById('exam-live-check').checked = true;
+    document.getElementById('exam-shuffle-check').checked = false;
+    document.getElementById('exam-show-results-check').checked = true;
+    document.getElementById('exam-retake-check').checked = true;
+    renderBuilderQuestions();
+    renderSelectedSummary();
+  }
+
+  function loadExamIntoBuilder(exam) {
+    state.editingExamId = exam.id;
+    state.selectedQuestionIds = new Set(exam.questionIds || []);
+    document.getElementById('exam-edit-id').value = exam.id;
+    document.getElementById('builder-mode-title').textContent = `Editing Exam: ${exam.title}`;
+    document.getElementById('exam-title-input').value = exam.title;
+    document.getElementById('exam-desc-input').value = exam.description || '';
+    document.getElementById('exam-duration-input').value = exam.durationMinutes;
+    document.getElementById('exam-marks-input').value = exam.marksPerQuestion;
+    document.getElementById('exam-neg-input').value = exam.negativeMarking || 0;
+    document.getElementById('exam-pass-input').value = exam.passPercentage || 40;
+    document.getElementById('exam-live-check').checked = Boolean(exam.isLive);
+    document.getElementById('exam-shuffle-check').checked = Boolean(exam.shuffleQuestions);
+    document.getElementById('exam-show-results-check').checked = exam.showResultsImmediately !== false;
+    document.getElementById('exam-retake-check').checked = exam.allowRetake !== false;
+    renderBuilderQuestions();
+    renderSelectedSummary();
+    switchTab('builder');
+  }
+
+  document.getElementById('builder-subj-filter').addEventListener('change', renderBuilderQuestions);
+  document.getElementById('builder-diff-filter').addEventListener('change', renderBuilderQuestions);
+  document.getElementById('builder-search-filter').addEventListener('input', renderBuilderQuestions);
+  document.getElementById('exam-marks-input').addEventListener('input', renderSelectedSummary);
+  document.getElementById('builder-reset-btn').addEventListener('click', () => {
+    resetBuilderForm();
+    showToast('Ready for a new exam.', 'info');
+  });
+
+  document.getElementById('auto-pick-btn').addEventListener('click', () => {
+    const count = Math.max(1, Number(document.getElementById('auto-pick-count').value) || 5);
+    const filtered = getFilteredBuilderQuestions().filter((q) => !state.selectedQuestionIds.has(q.id));
+    if (filtered.length === 0) {
+      showToast('All matching questions are already selected!', 'info');
+      return;
+    }
+    const pool = [...filtered];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const picked = pool.slice(0, count);
+    picked.forEach((q) => state.selectedQuestionIds.add(q.id));
+    renderBuilderQuestions();
+    renderSelectedSummary();
+    showToast(`Auto-selected ${picked.length} random MCQ${picked.length === 1 ? '' : 's'}!`, 'success');
+  });
+
+  document.getElementById('select-all-filtered-btn').addEventListener('click', () => {
+    const filtered = getFilteredBuilderQuestions();
+    filtered.forEach((q) => state.selectedQuestionIds.add(q.id));
+    renderBuilderQuestions();
+    renderSelectedSummary();
+    showToast(`Selected ${filtered.length} matching MCQs.`, 'success');
+  });
+
+  document.getElementById('clear-selected-btn').addEventListener('click', () => {
+    state.selectedQuestionIds.clear();
+    renderBuilderQuestions();
+    renderSelectedSummary();
+  });
+
+  document.getElementById('builder-quick-add-mcq-btn').addEventListener('click', () => {
+    openQuestionModal(null, true);
+  });
+
+  document.getElementById('exam-builder-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const questionIds = [...state.selectedQuestionIds];
+    if (questionIds.length === 0) {
+      showToast('Please select at least 1 MCQ first!', 'error');
+      return;
+    }
+
+    const payload = {
+      id: document.getElementById('exam-edit-id').value || undefined,
+      title: document.getElementById('exam-title-input').value.trim(),
+      description: document.getElementById('exam-desc-input').value.trim(),
+      durationMinutes: Number(document.getElementById('exam-duration-input').value) || 15,
+      marksPerQuestion: Number(document.getElementById('exam-marks-input').value) || 1,
+      negativeMarking: Number(document.getElementById('exam-neg-input').value) || 0,
+      passPercentage: Number(document.getElementById('exam-pass-input').value) || 40,
+      isLive: document.getElementById('exam-live-check').checked,
+      shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
+      showResultsImmediately: document.getElementById('exam-show-results-check').checked,
+      allowRetake: document.getElementById('exam-retake-check').checked,
+      questionIds
+    };
+
+    try {
+      const res = await apiFetch('/api/teacher/exams', {
+        method: 'POST',
+        auth: true,
+        body: payload
+      });
+      showToast(
+        res.exam.isLive
+          ? 'Exam saved & pushed LIVE to Student Portal!'
+          : 'Exam saved as Draft!',
+        'success'
+      );
+      await loadBootstrap();
+      switchTab('overview');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // ---------- TAB 3: QUESTION BANK & SUBJECTS ----------
+  function renderBank() {
+    const subjGrid = document.getElementById('subjects-overview-grid');
+    subjGrid.innerHTML = state.subjects.map((s) => `
+      <div class="badge" style="padding:8px 14px;font-size:13px;color:${escapeHtml(s.color)};background:${escapeHtml(s.bgColor)};border-color:${escapeHtml(s.color)}44;">
+        <strong>${escapeHtml(s.name)}</strong>
+        <span style="opacity:0.85;">(${s.questionCount ?? 0} MCQs)</span>
+      </div>
+    `).join('');
+
+    const subjFilter = document.getElementById('bank-subj-filter').value;
+    const diffFilter = document.getElementById('bank-diff-filter').value;
+    const search = document.getElementById('bank-search-filter').value.trim().toLowerCase();
+
+    const filtered = state.questions.filter((q) => {
+      if (subjFilter !== 'all' && q.subjectId !== subjFilter) return false;
+      if (diffFilter !== 'all' && q.difficulty !== diffFilter) return false;
+      if (search) {
+        const match = q.question.toLowerCase().includes(search) ||
+          (q.code && q.code.toLowerCase().includes(search)) ||
+          q.options.some((o) => o.toLowerCase().includes(search));
+        if (!match) return false;
+      }
+      return true;
+    });
+
+    const subjMap = getSubjectMap();
+    const letters = ['A', 'B', 'C', 'D'];
+    const listEl = document.getElementById('bank-list-container');
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="empty-state">No MCQs found for the selected filters.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map((q) => {
+      const s = subjMap.get(q.subjectId);
+      return `
+        <div class="card card-compact">
+          <div class="flex-between" style="margin-bottom:8px;">
+            <div class="flex-row">
+              ${renderSubjectBadge(s || { name: q.subjectId })}
+              ${renderDifficultyBadge(q.difficulty)}
+              ${q.isCustom ? '<span class="badge badge-primary">Custom MCQ</span>' : '<span class="badge badge-neutral">Built-in</span>'}
+            </div>
+            <div class="flex-row">
+              <button type="button" class="btn btn-secondary btn-sm bank-edit-btn" data-qid="${escapeHtml(q.id)}">Edit</button>
+              <button type="button" class="btn btn-soft-danger btn-sm bank-del-btn" data-qid="${escapeHtml(q.id)}">Delete</button>
+            </div>
+          </div>
+          <div style="font-weight:600;font-size:15px;">${escapeHtml(q.question)}</div>
+          ${q.code ? `<pre class="code-block">${escapeHtml(q.code)}</pre>` : ''}
+          <div class="mcq-options-mini">
+            ${q.options.map((opt, idx) => `
+              <div class="mcq-opt-chip ${idx === q.correctIndex ? 'correct' : ''}">
+                <strong>${letters[idx]}.</strong> ${escapeHtml(opt)}
+              </div>
+            `).join('')}
+          </div>
+          ${q.explanation ? `<div class="text-xs text-muted mt-1">💡 ${escapeHtml(q.explanation)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('.bank-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const q = state.questions.find((item) => item.id === btn.dataset.qid);
+        if (q) openQuestionModal(q, false);
+      });
+    });
+
+    listEl.querySelectorAll('.bank-del-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this MCQ from the question bank?')) return;
+        try {
+          await apiFetch(`/api/teacher/questions/${encodeURIComponent(btn.dataset.qid)}`, {
+            method: 'DELETE',
+            auth: true
+          });
+          state.selectedQuestionIds.delete(btn.dataset.qid);
+          showToast('MCQ deleted.', 'info');
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+  }
+
+  document.getElementById('bank-subj-filter').addEventListener('change', renderBank);
+  document.getElementById('bank-diff-filter').addEventListener('change', renderBank);
+  document.getElementById('bank-search-filter').addEventListener('input', renderBank);
+
+  // Add / Edit MCQ Modal
+  function openQuestionModal(existing = null, autoSelectInBuilder = false) {
+    const subjOpts = state.subjects.map((s) =>
+      `<option value="${escapeHtml(s.id)}" ${existing?.subjectId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
+    ).join('');
+
+    openModal(`
+      <div class="flex-between mb-2">
+        <h2 class="card-title">${existing ? 'Edit MCQ' : 'Add New MCQ'}</h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <form id="mcq-modal-form" class="stack-md">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="m-subj">Subject</label>
+            <select id="m-subj" class="select">${subjOpts}</select>
+          </div>
+          <div class="form-group">
+            <label for="m-diff">Difficulty</label>
+            <select id="m-diff" class="select">
+              <option value="Easy" ${existing?.difficulty === 'Easy' ? 'selected' : ''}>Easy</option>
+              <option value="Medium" ${!existing || existing.difficulty === 'Medium' ? 'selected' : ''}>Medium</option>
+              <option value="Hard" ${existing?.difficulty === 'Hard' ? 'selected' : ''}>Hard</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="m-question">Question *</label>
+          <textarea id="m-question" class="textarea" required placeholder="Type your question...">${escapeHtml(existing?.question || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label for="m-code">Code Snippet (Optional)</label>
+          <textarea id="m-code" class="textarea code-textarea" placeholder="Optional HTML/CSS/JS/Python code...">${escapeHtml(existing?.code || '')}</textarea>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group">
+            <label for="m-opt0">Option A *</label>
+            <input id="m-opt0" type="text" class="input" required value="${escapeHtml(existing?.options?.[0] || '')}" />
+          </div>
+          <div class="form-group">
+            <label for="m-opt1">Option B *</label>
+            <input id="m-opt1" type="text" class="input" required value="${escapeHtml(existing?.options?.[1] || '')}" />
+          </div>
+          <div class="form-group">
+            <label for="m-opt2">Option C *</label>
+            <input id="m-opt2" type="text" class="input" required value="${escapeHtml(existing?.options?.[2] || '')}" />
+          </div>
+          <div class="form-group">
+            <label for="m-opt3">Option D *</label>
+            <input id="m-opt3" type="text" class="input" required value="${escapeHtml(existing?.options?.[3] || '')}" />
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="m-correct">Correct Answer</label>
+            <select id="m-correct" class="select">
+              <option value="0" ${existing?.correctIndex === 0 ? 'selected' : ''}>Option A</option>
+              <option value="1" ${existing?.correctIndex === 1 ? 'selected' : ''}>Option B</option>
+              <option value="2" ${existing?.correctIndex === 2 ? 'selected' : ''}>Option C</option>
+              <option value="3" ${existing?.correctIndex === 3 ? 'selected' : ''}>Option D</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="m-expl">Explanation (shown after exam)</label>
+            <input id="m-expl" type="text" class="input" value="${escapeHtml(existing?.explanation || '')}" placeholder="Why is this option correct?" />
+          </div>
+        </div>
+        <div class="flex-row" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">${existing ? 'Update MCQ' : 'Save MCQ'}</button>
+        </div>
+      </form>
+    `);
+
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+
+    document.getElementById('mcq-modal-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        subjectId: document.getElementById('m-subj').value,
+        difficulty: document.getElementById('m-diff').value,
+        question: document.getElementById('m-question').value.trim(),
+        code: document.getElementById('m-code').value.trim(),
+        options: [
+          document.getElementById('m-opt0').value.trim(),
+          document.getElementById('m-opt1').value.trim(),
+          document.getElementById('m-opt2').value.trim(),
+          document.getElementById('m-opt3').value.trim()
+        ],
+        correctIndex: Number(document.getElementById('m-correct').value),
+        explanation: document.getElementById('m-expl').value.trim()
+      };
+
+      try {
+        if (existing) {
+          await apiFetch(`/api/teacher/questions/${encodeURIComponent(existing.id)}`, {
+            method: 'PUT',
+            auth: true,
+            body: payload
+          });
+          showToast('MCQ updated!', 'success');
+        } else {
+          const res = await apiFetch('/api/teacher/questions', {
+            method: 'POST',
+            auth: true,
+            body: payload
+          });
+          if (autoSelectInBuilder && res.question?.id) {
+            state.selectedQuestionIds.add(res.question.id);
+          }
+          showToast(autoSelectInBuilder ? 'Custom MCQ added & selected!' : 'Custom MCQ added to bank!', 'success');
+        }
+        closeModal();
+        await loadBootstrap();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  document.getElementById('open-add-mcq-btn').addEventListener('click', () => openQuestionModal(null, false));
+
+  // Add Subject Modal
+  document.getElementById('open-add-subject-btn').addEventListener('click', () => {
+    openModal(`
+      <div class="flex-between mb-2">
+        <h2 class="card-title">Add New Programming Subject</h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <form id="subj-modal-form" class="stack-md">
+        <div class="form-group">
+          <label for="s-name">Subject Name *</label>
+          <input id="s-name" type="text" class="input" required placeholder="e.g. C++, SQL, Java, React" />
+        </div>
+        <div class="form-group">
+          <label for="s-full">Full Description (optional)</label>
+          <input id="s-full" type="text" class="input" placeholder="e.g. SQL & Relational Databases" />
+        </div>
+        <div class="form-group">
+          <label for="s-color">Badge Color</label>
+          <input id="s-color" type="color" class="input" value="#7c3aed" style="height:44px;padding:4px;" />
+        </div>
+        <div class="flex-row" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Subject</button>
+        </div>
+      </form>
+    `);
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+    document.getElementById('subj-modal-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await apiFetch('/api/teacher/subjects', {
+          method: 'POST',
+          auth: true,
+          body: {
+            name: document.getElementById('s-name').value.trim(),
+            fullName: document.getElementById('s-full').value.trim(),
+            color: document.getElementById('s-color').value
+          }
+        });
+        showToast('New subject added!', 'success');
+        closeModal();
+        await loadBootstrap();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Bulk Import Modal (supports simple Q/A/B/C/D/ANS format OR JSON array)
+  function parseSimpleBulkText(rawText, defaultSubj, defaultDiff) {
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith('[')) {
+      const parsed = JSON.parse(trimmed);
+      return parsed.map((item) => ({
+        subjectId: item.subjectId || defaultSubj,
+        difficulty: item.difficulty || defaultDiff,
+        question: item.question,
+        code: item.code || '',
+        options: item.options,
+        correctIndex: Number(item.correctIndex),
+        explanation: item.explanation || ''
+      }));
+    }
+
+    const blocks = trimmed.split(/\n\s*\n+/);
+    const results = [];
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      let question = '';
+      const opts = ['', '', '', ''];
+      let correctIndex = -1;
+      let explanation = '';
+
+      for (const line of lines) {
+        if (/^Q[:.)\s]/i.test(line)) {
+          question = line.replace(/^Q[:.)\s]+/i, '').trim();
+        } else if (/^A[:.)\s]/i.test(line)) {
+          opts[0] = line.replace(/^A[:.)\s]+/i, '').trim();
+        } else if (/^B[:.)\s]/i.test(line)) {
+          opts[1] = line.replace(/^B[:.)\s]+/i, '').trim();
+        } else if (/^C[:.)\s]/i.test(line)) {
+          opts[2] = line.replace(/^C[:.)\s]+/i, '').trim();
+        } else if (/^D[:.)\s]/i.test(line)) {
+          opts[3] = line.replace(/^D[:.)\s]+/i, '').trim();
+        } else if (/^ANS(WER)?[:.)\s]/i.test(line)) {
+          const val = line.replace(/^ANS(WER)?[:.)\s]+/i, '').trim().toUpperCase();
+          correctIndex = ['A', 'B', 'C', 'D'].indexOf(val[0]);
+        } else if (/^EXP(LANATION)?[:.)\s]/i.test(line)) {
+          explanation = line.replace(/^EXP(LANATION)?[:.)\s]+/i, '').trim();
+        }
+      }
+
+      if (question && opts.every(Boolean) && correctIndex >= 0) {
+        results.push({
+          subjectId: defaultSubj,
+          difficulty: defaultDiff,
+          question,
+          code: '',
+          options: opts,
+          correctIndex,
+          explanation
+        });
+      }
+    }
+    return results;
+  }
+
+  document.getElementById('open-bulk-import-btn').addEventListener('click', () => {
+    const subjOpts = state.subjects.map((s) =>
+      `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`
+    ).join('');
+
+    openModal(`
+      <div class="flex-between mb-2">
+        <h2 class="card-title">Bulk Import MCQs</h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <p class="text-sm text-muted" style="margin-top:0;">
+        Paste multiple MCQs separated by a blank line using <code>Q: / A: / B: / C: / D: / ANS:</code> format (or a JSON array).
+      </p>
+      <form id="bulk-modal-form" class="stack-md">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="b-subj">Default Subject</label>
+            <select id="b-subj" class="select">${subjOpts}</select>
+          </div>
+          <div class="form-group">
+            <label for="b-diff">Default Difficulty</label>
+            <select id="b-diff" class="select">
+              <option value="Easy">Easy</option>
+              <option value="Medium" selected>Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="b-text">MCQs Input</label>
+          <textarea id="b-text" class="textarea code-textarea" style="min-height:200px;" placeholder="Q: Which tag creates a hyperlink in HTML?
+A: <link>
+B: <a>
+C: <href>
+D: <url>
+ANS: B
+EXP: The <a> anchor tag creates hyperlinks."></textarea>
+        </div>
+        <div class="flex-row" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Import MCQs</button>
+        </div>
+      </form>
+    `);
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+    document.getElementById('bulk-modal-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const parsed = parseSimpleBulkText(
+          document.getElementById('b-text').value,
+          document.getElementById('b-subj').value,
+          document.getElementById('b-diff').value
+        );
+        if (parsed.length === 0) {
+          showToast('No valid MCQs parsed. Check Q:/A:/B:/C:/D:/ANS: format.', 'error');
+          return;
+        }
+        const res = await apiFetch('/api/teacher/questions/bulk', {
+          method: 'POST',
+          auth: true,
+          body: { questions: parsed }
+        });
+        showToast(`Imported ${res.addedCount} MCQs successfully!`, 'success');
+        closeModal();
+        await loadBootstrap();
+      } catch (err) {
+        showToast(err.message || 'Failed to parse bulk MCQs.', 'error');
+      }
+    });
+  });
+
+  // ---------- TAB 4: RESULTS ----------
+  function getFilteredSubmissions() {
+    const examId = document.getElementById('results-exam-filter').value;
+    const search = document.getElementById('results-search-input').value.trim().toLowerCase();
+
+    return state.submissions.filter((s) => {
+      if (examId !== 'all' && s.examId !== examId) return false;
+      if (search) {
+        const match = s.studentName.toLowerCase().includes(search) ||
+          s.rollNumber.toLowerCase().includes(search) ||
+          (s.batch && s.batch.toLowerCase().includes(search));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderResults() {
+    const rows = getFilteredSubmissions();
+    const tbody = document.getElementById('results-table-body');
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:28px;color:var(--text-muted);">No student submissions yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map((s, idx) => `
+      <tr>
+        <td><strong>${idx + 1}</strong></td>
+        <td>
+          <strong>${escapeHtml(s.studentName)}</strong>
+          ${s.batch ? `<div class="text-xs text-muted">${escapeHtml(s.batch)}</div>` : ''}
+        </td>
+        <td><span class="font-mono">${escapeHtml(s.rollNumber)}</span></td>
+        <td>${escapeHtml(s.examTitle)}</td>
+        <td><strong>${s.score} / ${s.totalMarks}</strong></td>
+        <td><strong>${s.percentage}%</strong></td>
+        <td>${s.passed ? '<span class="badge badge-success">PASS</span>' : '<span class="badge badge-danger">FAIL</span>'}</td>
+        <td>
+          <span style="color:var(--success);font-weight:600;">✓${s.correctCount}</span> /
+          <span style="color:var(--danger);font-weight:600;">✕${s.wrongCount}</span> /
+          <span class="text-muted">–${s.skippedCount}</span>
+        </td>
+        <td class="font-mono text-xs">${formatDuration(s.timeTakenSeconds)}</td>
+        <td class="text-xs text-muted">${escapeHtml(formatDateTime(s.submittedAt))}</td>
+        <td>
+          <div class="flex-row">
+            <button type="button" class="btn btn-secondary btn-sm view-sub-btn" data-id="${escapeHtml(s.id)}">View Paper</button>
+            <button type="button" class="btn btn-soft-danger btn-sm del-sub-btn" data-id="${escapeHtml(s.id)}">✕</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    tbody.querySelectorAll('.view-sub-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sub = state.submissions.find((item) => item.id === btn.dataset.id);
+        if (sub) openSubmissionModal(sub);
+      });
+    });
+
+    tbody.querySelectorAll('.del-sub-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this student submission?')) return;
+        try {
+          await apiFetch(`/api/teacher/submissions/${encodeURIComponent(btn.dataset.id)}`, {
+            method: 'DELETE',
+            auth: true
+          });
+          showToast('Submission deleted.', 'info');
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
+  }
+
+  function openSubmissionModal(sub) {
+    const letters = ['A', 'B', 'C', 'D'];
+    const subjCards = (sub.subjectBreakdown || []).map((sb) => `
+      <div class="badge" style="padding:7px 12px;background:var(--surface-muted);border-color:var(--border);">
+        <strong>${escapeHtml(sb.subjectName)}:</strong> ${sb.marksObtained}/${sb.maxMarks} (${sb.correct}/${sb.totalQuestions} correct)
+      </div>
+    `).join('');
+
+    const reviewHtml = (sub.review || []).map((item, idx) => `
+      <div class="review-item ${escapeHtml(item.status)}">
+        <div class="flex-between" style="margin-bottom:6px;">
+          <span class="badge badge-neutral">Q${idx + 1} • ${escapeHtml(item.subjectName)}</span>
+          <span class="badge ${item.status === 'correct' ? 'badge-success' : item.status === 'wrong' ? 'badge-danger' : 'badge-neutral'}">
+            ${item.status === 'correct' ? `+${item.marksAwarded} Mark` : item.status === 'wrong' ? `${item.marksAwarded} Mark` : 'Skipped'}
+          </span>
+        </div>
+        <div style="font-weight:600;margin-bottom:8px;">${escapeHtml(item.question)}</div>
+        ${item.code ? `<pre class="code-block">${escapeHtml(item.code)}</pre>` : ''}
+        <div class="stack-sm">
+          ${item.options.map((opt, optIdx) => {
+            const isCorrect = optIdx === item.correctIndex;
+            const isChosen = optIdx === item.selectedIndex;
+            const cls = isCorrect ? 'is-correct' : (isChosen && !isCorrect ? 'is-wrong' : '');
+            return `
+              <div class="review-opt ${cls}">
+                <span><strong>${letters[optIdx]}.</strong> ${escapeHtml(opt)}</span>
+                <span class="text-xs">
+                  ${isCorrect ? '✓ Correct Answer' : ''}${isChosen && !isCorrect ? '✕ Student Choice' : ''}${isChosen && isCorrect ? ' (Chosen)' : ''}
+                </span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `).join('');
+
+    openModal(`
+      <div class="flex-between mb-2">
+        <div>
+          <h2 class="card-title">${escapeHtml(sub.studentName)} (${escapeHtml(sub.rollNumber)})</h2>
+          <p class="card-subtitle">${escapeHtml(sub.examTitle)} • Score: <strong>${sub.score}/${sub.totalMarks} (${sub.percentage}%)</strong></p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <div class="flex-row mb-2">${subjCards}</div>
+      <div class="stack-md">${reviewHtml}</div>
+    `);
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+  }
+
+  document.getElementById('results-exam-filter').addEventListener('change', renderResults);
+  document.getElementById('results-search-input').addEventListener('input', renderResults);
+
+  document.getElementById('refresh-results-btn').addEventListener('click', async () => {
+    try {
+      const res = await apiFetch('/api/teacher/submissions', { auth: true });
+      state.submissions = res.submissions || [];
+      renderOverview();
+      renderResults();
+      showToast('Results refreshed.', 'info');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('export-csv-btn').addEventListener('click', async () => {
+    const examId = document.getElementById('results-exam-filter').value || 'all';
+    try {
+      const res = await fetch(`/api/teacher/submissions/export.csv?examId=${encodeURIComponent(examId)}`, {
+        headers: { Authorization: `Bearer ${getTeacherToken()}` }
+      });
+      if (!res.ok) throw new Error('Failed to export CSV');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'codeaura-exam-results.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('clear-results-btn').addEventListener('click', async () => {
+    const examId = document.getElementById('results-exam-filter').value || 'all';
+    const msg = examId === 'all'
+      ? 'Delete ALL student submissions across every exam?'
+      : 'Delete all student submissions for the selected exam?';
+    if (!confirm(msg)) return;
+    try {
+      await apiFetch(`/api/teacher/submissions?examId=${encodeURIComponent(examId)}`, {
+        method: 'DELETE',
+        auth: true
+      });
+      showToast('Submissions cleared.', 'info');
+      await loadBootstrap();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // ---------- TAB 5: SETTINGS ----------
+  document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/api/teacher/settings', {
+        method: 'PUT',
+        auth: true,
+        body: {
+          instituteName: document.getElementById('set-institute').value.trim(),
+          teacherName: document.getElementById('set-teacher').value.trim(),
+          currentPin: document.getElementById('set-current-pin').value,
+          newPin: document.getElementById('set-new-pin').value
+        }
+      });
+      document.getElementById('set-current-pin').value = '';
+      document.getElementById('set-new-pin').value = '';
+      state.info = { ...state.info, ...res.settings };
+      document.getElementById('teacher-brand-name').textContent = state.info.instituteName;
+      if (!state.info.isDefaultPin) {
+        defaultPinHint.classList.add('hidden');
+      }
+      showToast('Settings saved!', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  initSession();
+})();

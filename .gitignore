@@ -1,0 +1,9 @@
+# Runtime data, student submissions, teacher PIN & session secret
+data/
+*.bak
+
+# Dependencies & OS files
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
