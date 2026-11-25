@@ -119,8 +119,16 @@
     return `<span class="badge badge-warning">Medium</span>`;
   }
 
+  function formatInlineCodeHtml(value) {
+    const escaped = escapeHtml(value);
+    return escaped
+      .replace(/(&lt;\/?[a-zA-Z!][a-zA-Z0-9-]*(?:(?:[^&\n]|&quot;|&#39;|&amp;| ){0,60}?)&gt;)/g, '<code class="inline-code-pill">$1</code>')
+      .replace(/`([^`]+)`/g, '<code class="inline-code-pill">$1</code>');
+  }
+
   window.CodeAura = {
     escapeHtml,
+    formatInlineCodeHtml,
     getTeacherToken,
     setTeacherToken,
     apiFetch,

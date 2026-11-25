@@ -1,6 +1,7 @@
 (function () {
   const {
     escapeHtml,
+    formatInlineCodeHtml,
     apiFetch,
     formatDuration,
     showToast,
@@ -519,7 +520,7 @@
       <span class="badge badge-neutral">+${exam.marksPerQuestion} Mark${exam.marksPerQuestion === 1 ? '' : 's'}</span>
     `;
 
-    document.getElementById('active-q-text').textContent = q.question;
+    document.getElementById('active-q-text').innerHTML = formatInlineCodeHtml(q.question);
 
     const codeEl = document.getElementById('active-q-code');
     if (q.code && q.code.trim()) {
@@ -537,7 +538,7 @@
     optListEl.innerHTML = q.options.map((opt, idx) => `
       <button type="button" class="option-btn ${selectedOpt === idx ? 'selected' : ''}" data-opt="${idx}">
         <span class="option-letter">${letters[idx]}</span>
-        <span style="flex:1;line-height:1.45;">${escapeHtml(opt)}</span>
+        <span style="flex:1;line-height:1.45;">${formatInlineCodeHtml(opt)}</span>
       </button>
     `).join('');
 

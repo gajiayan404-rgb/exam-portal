@@ -9,13 +9,17 @@
 <body>
   <header class="topbar">
     <div class="container topbar-inner">
-      <a href="/" class="brand">
-        <div class="brand-logo">CA</div>
-        <div>
-          <div class="brand-title" id="teacher-brand-name">CodeAura Classroom</div>
-          <div class="brand-sub">Sir / Teacher Control Portal</div>
-        </div>
-      </a>
+      <div class="flex-row">
+        <a href="/" class="brand">
+          <div class="brand-logo">CA</div>
+          <div>
+            <div class="brand-title" id="teacher-brand-name">CodeAura Classroom</div>
+            <div class="brand-sub">Sir / Teacher Control Portal</div>
+          </div>
+        </a>
+        <span class="badge badge-neutral hidden" id="header-live-status-pill">Checking status...</span>
+        <span class="badge badge-neutral hidden" id="draft-autosave-pill">💾 Draft saved</span>
+      </div>
       <div class="topbar-actions" id="teacher-topbar-actions">
         <a href="/student" target="_blank" class="btn btn-secondary btn-sm">Preview Student Portal ↗</a>
         <button type="button" id="copy-student-url-btn" class="btn btn-soft-primary btn-sm hidden">Copy Student Link</button>
@@ -136,8 +140,13 @@
               <span class="text-sm" style="font-weight:600;">Auto-Select:</span>
               <input id="auto-pick-count" type="number" min="1" max="100" value="5" class="input" style="width:74px;padding:6px 8px;" />
               <button type="button" id="auto-pick-btn" class="btn btn-primary btn-sm">🎲 Pick Random MCQs</button>
+              <span class="badge badge-neutral" id="auto-pick-max-hint">Max 0 available</span>
             </div>
             <div class="flex-row">
+              <label class="checkbox-row" style="background:#fff;padding:5px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;">
+                <input type="checkbox" id="builder-selected-only-check" />
+                <span>Selected Only</span>
+              </label>
               <button type="button" id="select-all-filtered-btn" class="btn btn-secondary btn-sm">Select All Shown</button>
               <button type="button" id="clear-selected-btn" class="btn btn-soft-danger btn-sm">Clear Selected</button>
             </div>
@@ -147,8 +156,21 @@
         </div>
 
         <!-- RIGHT: EXAM DETAILS & SELECTED SUMMARY -->
-        <div class="card stack-md" style="position:sticky;top:80px;">
-          <h2 class="card-title">2. Exam Settings &amp; Publish</h2>
+        <div class="card stack-md builder-sidebar-sticky">
+          <div class="flex-between">
+            <h2 class="card-title">2. Exam Settings &amp; Publish</h2>
+            <button type="button" id="preview-paper-btn" class="btn btn-soft-primary btn-sm" disabled>👁 Preview Paper</button>
+          </div>
+
+          <div style="border:1px solid var(--primary-border);background:var(--primary-soft);border-radius:12px;padding:12px;">
+            <div class="flex-between">
+              <strong style="color:var(--primary);">Selected Paper Summary</strong>
+              <span class="badge badge-primary" id="selected-total-badge">0 MCQs • 0 Marks</span>
+            </div>
+            <div id="selected-subject-breakdown" class="flex-row mt-1"></div>
+            <div id="selected-mini-list" class="stack-sm mt-2" style="max-height:140px;overflow-y:auto;"></div>
+          </div>
+
           <form id="exam-builder-form" class="stack-md">
             <input type="hidden" id="exam-edit-id" value="" />
             <div class="form-group">
@@ -221,16 +243,11 @@
               </label>
             </div>
 
-            <div style="border:1px solid var(--primary-border);background:var(--primary-soft);border-radius:12px;padding:12px;">
-              <div class="flex-between">
-                <strong style="color:var(--primary);">Selected Paper Summary</strong>
-                <span class="badge badge-primary" id="selected-total-badge">0 MCQs • 0 Marks</span>
-              </div>
-              <div id="selected-subject-breakdown" class="flex-row mt-1"></div>
-              <div id="selected-mini-list" class="stack-sm mt-2" style="max-height:190px;overflow-y:auto;"></div>
+            <div id="builder-validation-hint" class="text-xs" style="padding:8px 11px;border-radius:8px;background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-border);font-weight:600;">
+              Enter an Exam Title and select at least 1 MCQ to publish.
             </div>
 
-            <button type="submit" class="btn btn-primary btn-lg" id="save-exam-btn">
+            <button type="submit" class="btn btn-primary btn-lg" id="save-exam-btn" disabled>
               🚀 Save &amp; Push to Student Portal
             </button>
           </form>

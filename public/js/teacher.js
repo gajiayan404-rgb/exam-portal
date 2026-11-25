@@ -1,6 +1,7 @@
 (function () {
   const {
     escapeHtml,
+    formatInlineCodeHtml,
     getTeacherToken,
     setTeacherToken,
     apiFetch,
@@ -86,6 +87,8 @@
     appView.classList.add('hidden');
     logoutBtn.classList.add('hidden');
     copyUrlBtn.classList.add('hidden');
+    document.getElementById('header-live-status-pill').classList.add('hidden');
+    document.getElementById('draft-autosave-pill').classList.add('hidden');
     pinInput.value = '';
     pinInput.focus();
   }
@@ -95,7 +98,9 @@
     appView.classList.remove('hidden');
     logoutBtn.classList.remove('hidden');
     copyUrlBtn.classList.remove('hidden');
+    document.getElementById('header-live-status-pill').classList.remove('hidden');
     await loadBootstrap();
+    restoreBuilderDraft();
     connectLiveEvents();
   }
 
@@ -263,6 +268,14 @@
   // ---------- TAB 1: OVERVIEW ----------
   function renderOverview() {
     const liveCount = state.exams.filter((e) => e.isLive).length;
+    const headerPill = document.getElementById('header-live-status-pill');
+    if (liveCount > 0) {
+      headerPill.className = 'badge badge-success';
+      headerPill.innerHTML = `<span class="live-dot"></span> ${liveCount} Exam${liveCount === 1 ? '' : 's'} Live`;
+    } else {
+      headerPill.className = 'badge badge-warning';
+      headerPill.textContent = 'Draft Mode • 0 Live';
+    }
     const totalSubs = state.submissions.length;
     const avgPct = totalSubs > 0
       ? (state.submissions.reduce((acc, s) => acc + (Number(s.percentage) || 0), 0) / totalSubs).toFixed(1)
@@ -432,12 +445,165 @@
   }
 
   // ---------- TAB 2: EXAM BUILDER & MCQ SELECTOR ----------
+  const DRAFT_KEY = 'codeaura_teacher_exam_draft';
+  let lastDraftSavedAt = null;
+
+  function updateDraftPillText() {
+    const pill = document.getElementById('draft-autosave-pill');
+    if (!lastDraftSavedAt) {
+      pill.classList.add('hidden');
+      return;
+    }
+    const secs = Math.max(0, Math.floor((Date.now() - lastDraftSavedAt) / 1000));
+    const ago = secs < 5 ? 'just now' : secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`;
+    pill.classList.remove('hidden');
+    pill.className = 'badge badge-primary';
+    pill.textContent = `💾 Saved locally ${ago}`;
+  }
+
+  setInterval(updateDraftPillText, 5000);
+
+  function saveBuilderDraft() {
+    const title = document.getElementById('exam-title-input').value.trim();
+    const desc = document.getElementById('exam-desc-input').value.trim();
+    const ids = [...state.selectedQuestionIds];
+    if (!title && !desc && ids.length === 0 && !state.editingExamId) {
+      clearBuilderDraft();
+      return;
+    }
+    const payload = {
+      editingExamId: state.editingExamId || '',
+      title: document.getElementById('exam-title-input').value,
+      description: document.getElementById('exam-desc-input').value,
+      durationMinutes: document.getElementById('exam-duration-input').value,
+      marksPerQuestion: document.getElementById('exam-marks-input').value,
+      negativeMarking: document.getElementById('exam-neg-input').value,
+      passPercentage: document.getElementById('exam-pass-input').value,
+      speedModeSeconds: document.getElementById('exam-speed-input').value,
+      maxTabViolations: document.getElementById('exam-max-violations-input').value,
+      isLive: document.getElementById('exam-live-check').checked,
+      shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
+      showResultsImmediately: document.getElementById('exam-show-results-check').checked,
+      allowRetake: document.getElementById('exam-retake-check').checked,
+      proctorTabSwitch: document.getElementById('exam-proctor-tab-check').checked,
+      blockCopyPaste: document.getElementById('exam-block-copy-check').checked,
+      requireFullscreen: document.getElementById('exam-fullscreen-check').checked,
+      questionIds: ids,
+      savedAt: Date.now()
+    };
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      lastDraftSavedAt = payload.savedAt;
+      updateDraftPillText();
+    } catch {}
+  }
+
+  function clearBuilderDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch {}
+    lastDraftSavedAt = null;
+    updateDraftPillText();
+  }
+
+  function restoreBuilderDraft() {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (!d || (!d.title && (!d.questionIds || d.questionIds.length === 0))) return;
+      const validIds = new Set(state.questions.map((q) => q.id));
+      state.editingExamId = d.editingExamId || null;
+      state.selectedQuestionIds = new Set((d.questionIds || []).filter((id) => validIds.has(id)));
+      document.getElementById('exam-edit-id').value = d.editingExamId || '';
+      document.getElementById('builder-mode-title').textContent = d.editingExamId
+        ? `Editing Exam (Draft Restored): ${d.title || 'Untitled'}`
+        : 'Create New Exam — Select MCQs for Students (Draft Restored)';
+      document.getElementById('exam-title-input').value = d.title || '';
+      document.getElementById('exam-desc-input').value = d.description || '';
+      if (d.durationMinutes !== undefined) document.getElementById('exam-duration-input').value = d.durationMinutes;
+      if (d.marksPerQuestion !== undefined) document.getElementById('exam-marks-input').value = d.marksPerQuestion;
+      if (d.negativeMarking !== undefined) document.getElementById('exam-neg-input').value = d.negativeMarking;
+      if (d.passPercentage !== undefined) document.getElementById('exam-pass-input').value = d.passPercentage;
+      if (d.speedModeSeconds !== undefined) document.getElementById('exam-speed-input').value = d.speedModeSeconds;
+      if (d.maxTabViolations !== undefined) document.getElementById('exam-max-violations-input').value = d.maxTabViolations;
+      if (d.isLive !== undefined) document.getElementById('exam-live-check').checked = Boolean(d.isLive);
+      if (d.shuffleQuestions !== undefined) document.getElementById('exam-shuffle-check').checked = Boolean(d.shuffleQuestions);
+      if (d.showResultsImmediately !== undefined) document.getElementById('exam-show-results-check').checked = Boolean(d.showResultsImmediately);
+      if (d.allowRetake !== undefined) document.getElementById('exam-retake-check').checked = Boolean(d.allowRetake);
+      if (d.proctorTabSwitch !== undefined) document.getElementById('exam-proctor-tab-check').checked = Boolean(d.proctorTabSwitch);
+      if (d.blockCopyPaste !== undefined) document.getElementById('exam-block-copy-check').checked = Boolean(d.blockCopyPaste);
+      if (d.requireFullscreen !== undefined) document.getElementById('exam-fullscreen-check').checked = Boolean(d.requireFullscreen);
+      lastDraftSavedAt = d.savedAt || Date.now();
+      updateDraftPillText();
+      renderBuilderQuestions();
+      renderSelectedSummary();
+    } catch {}
+  }
+
+  function updatePublishGuardrails() {
+    const title = document.getElementById('exam-title-input').value.trim();
+    const count = state.selectedQuestionIds.size;
+    const marksPerQ = Number(document.getElementById('exam-marks-input').value) || 1;
+    const totalMarks = (count * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
+
+    const hintEl = document.getElementById('builder-validation-hint');
+    const submitBtn = document.getElementById('save-exam-btn');
+    const previewBtn = document.getElementById('preview-paper-btn');
+    previewBtn.disabled = count === 0;
+
+    const missing = [];
+    if (!title) missing.push('Exam Title');
+    if (count === 0) missing.push('at least 1 MCQ');
+
+    if (missing.length > 0) {
+      submitBtn.disabled = true;
+      hintEl.style.background = 'var(--warning-soft)';
+      hintEl.style.color = 'var(--warning)';
+      hintEl.style.borderColor = 'var(--warning-border)';
+      hintEl.textContent = `Required before publishing: add ${missing.join(' and ')}.`;
+    } else {
+      submitBtn.disabled = false;
+      hintEl.style.background = 'var(--success-soft)';
+      hintEl.style.color = 'var(--success)';
+      hintEl.style.borderColor = 'var(--success-border)';
+      hintEl.textContent = `✓ Ready to publish ${count} MCQ${count === 1 ? '' : 's'} (${totalMarks} Total Marks).`;
+    }
+  }
+
+  function syncAutoPickLimits() {
+    const filtered = getFilteredBuilderQuestions();
+    const available = filtered.filter((q) => !state.selectedQuestionIds.has(q.id)).length;
+    const countInput = document.getElementById('auto-pick-count');
+    const pickBtn = document.getElementById('auto-pick-btn');
+    const hint = document.getElementById('auto-pick-max-hint');
+
+    countInput.max = String(Math.max(1, available));
+    if (available > 0 && Number(countInput.value) > available) {
+      countInput.value = String(available);
+    }
+
+    if (filtered.length === 0) {
+      hint.className = 'badge badge-neutral';
+      hint.textContent = '0 matching';
+      pickBtn.disabled = true;
+    } else if (available === 0) {
+      hint.className = 'badge badge-success';
+      hint.textContent = `All ${filtered.length} selected`;
+      pickBtn.disabled = true;
+    } else {
+      hint.className = 'badge badge-primary';
+      hint.textContent = `Max ${available} available`;
+      pickBtn.disabled = false;
+    }
+  }
+
   function getFilteredBuilderQuestions() {
     const subj = document.getElementById('builder-subj-filter').value;
     const diff = document.getElementById('builder-diff-filter').value;
     const search = document.getElementById('builder-search-filter').value.trim().toLowerCase();
+    const selectedOnly = document.getElementById('builder-selected-only-check').checked;
 
     return state.questions.filter((q) => {
+      if (selectedOnly && !state.selectedQuestionIds.has(q.id)) return false;
       if (subj !== 'all' && q.subjectId !== subj) return false;
       if (diff !== 'all' && q.difficulty !== diff) return false;
       if (search) {
@@ -454,10 +620,12 @@
     const filtered = getFilteredBuilderQuestions();
     const subjMap = getSubjectMap();
     document.getElementById('builder-filter-count').textContent = `${filtered.length} shown`;
+    syncAutoPickLimits();
 
     const listEl = document.getElementById('builder-mcq-list');
     if (filtered.length === 0) {
-      listEl.innerHTML = `<div class="empty-state">No MCQs match this filter. Try clearing the search or adding a new MCQ.</div>`;
+      const selectedOnly = document.getElementById('builder-selected-only-check').checked;
+      listEl.innerHTML = `<div class="empty-state">${selectedOnly ? 'No selected MCQs match this filter. Uncheck "Selected Only" to view the full bank.' : 'No MCQs match this filter. Try clearing the search or adding a new MCQ.'}</div>`;
       return;
     }
 
@@ -474,12 +642,12 @@
               ${renderDifficultyBadge(q.difficulty)}
               ${q.isCustom ? '<span class="badge badge-primary">Custom</span>' : ''}
             </div>
-            <div style="font-weight:600;font-size:14.5px;">${escapeHtml(q.question)}</div>
+            <div style="font-weight:600;font-size:14.5px;">${formatInlineCodeHtml(q.question)}</div>
             ${q.code ? `<pre class="code-block" style="margin:8px 0;">${escapeHtml(q.code)}</pre>` : ''}
             <div class="mcq-options-mini">
               ${q.options.map((opt, idx) => `
                 <div class="mcq-opt-chip ${idx === q.correctIndex ? 'correct' : ''}">
-                  <strong>${letters[idx]}.</strong> ${escapeHtml(opt)}
+                  <strong>${letters[idx]}.</strong> ${formatInlineCodeHtml(opt)}
                 </div>
               `).join('')}
             </div>
@@ -498,6 +666,11 @@
         }
         cb.closest('.mcq-pick-item').classList.toggle('selected', cb.checked);
         renderSelectedSummary();
+        syncAutoPickLimits();
+        saveBuilderDraft();
+        if (document.getElementById('builder-selected-only-check').checked) {
+          renderBuilderQuestions();
+        }
       });
     });
   }
@@ -527,6 +700,7 @@
     const miniEl = document.getElementById('selected-mini-list');
     if (selectedQuestions.length === 0) {
       miniEl.innerHTML = `<div class="text-xs text-muted">No MCQs selected yet. Tick checkboxes on the left or click "Pick Random MCQs".</div>`;
+      updatePublishGuardrails();
       return;
     }
 
@@ -547,8 +721,11 @@
         state.selectedQuestionIds.delete(btn.dataset.qid);
         renderBuilderQuestions();
         renderSelectedSummary();
+        saveBuilderDraft();
       });
     });
+
+    updatePublishGuardrails();
   }
 
   function resetBuilderForm() {
@@ -571,6 +748,8 @@
     document.getElementById('exam-proctor-tab-check').checked = true;
     document.getElementById('exam-block-copy-check').checked = true;
     document.getElementById('exam-fullscreen-check').checked = false;
+    document.getElementById('builder-selected-only-check').checked = false;
+    clearBuilderDraft();
     renderBuilderQuestions();
     renderSelectedSummary();
   }
@@ -595,6 +774,7 @@
     document.getElementById('exam-proctor-tab-check').checked = exam.proctorTabSwitch !== false;
     document.getElementById('exam-block-copy-check').checked = exam.blockCopyPaste !== false;
     document.getElementById('exam-fullscreen-check').checked = Boolean(exam.requireFullscreen);
+    document.getElementById('builder-selected-only-check').checked = false;
     renderBuilderQuestions();
     renderSelectedSummary();
     switchTab('builder');
@@ -603,14 +783,94 @@
   document.getElementById('builder-subj-filter').addEventListener('change', renderBuilderQuestions);
   document.getElementById('builder-diff-filter').addEventListener('change', renderBuilderQuestions);
   document.getElementById('builder-search-filter').addEventListener('input', renderBuilderQuestions);
-  document.getElementById('exam-marks-input').addEventListener('input', renderSelectedSummary);
+  document.getElementById('builder-selected-only-check').addEventListener('change', renderBuilderQuestions);
+  document.getElementById('exam-marks-input').addEventListener('input', () => {
+    renderSelectedSummary();
+    saveBuilderDraft();
+  });
+  document.getElementById('exam-title-input').addEventListener('input', () => {
+    updatePublishGuardrails();
+    saveBuilderDraft();
+  });
+  [
+    'exam-desc-input', 'exam-duration-input', 'exam-neg-input', 'exam-pass-input',
+    'exam-speed-input', 'exam-max-violations-input', 'exam-live-check', 'exam-shuffle-check',
+    'exam-show-results-check', 'exam-retake-check', 'exam-proctor-tab-check',
+    'exam-block-copy-check', 'exam-fullscreen-check'
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', saveBuilderDraft);
+  });
+
   document.getElementById('builder-reset-btn').addEventListener('click', () => {
     resetBuilderForm();
     showToast('Ready for a new exam.', 'info');
   });
 
+  document.getElementById('preview-paper-btn').addEventListener('click', () => {
+    const qMap = new Map(state.questions.map((q) => [q.id, q]));
+    const subjMap = getSubjectMap();
+    const selectedQuestions = [...state.selectedQuestionIds].map((id) => qMap.get(id)).filter(Boolean);
+    if (selectedQuestions.length === 0) return;
+
+    const letters = ['A', 'B', 'C', 'D'];
+    const title = document.getElementById('exam-title-input').value.trim() || 'Untitled Draft Exam';
+    const marksPerQ = Number(document.getElementById('exam-marks-input').value) || 1;
+    const totalMarks = (selectedQuestions.length * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
+
+    openModal(`
+      <div class="flex-between mb-2">
+        <div>
+          <h2 class="card-title">Preview Paper: ${escapeHtml(title)}</h2>
+          <p class="card-subtitle">${selectedQuestions.length} MCQs • ${totalMarks} Total Marks • ⏱ ${escapeHtml(document.getElementById('exam-duration-input').value || '15')} mins</p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <div class="stack-md">
+        ${selectedQuestions.map((q, idx) => {
+          const s = subjMap.get(q.subjectId);
+          return `
+            <div class="card card-compact">
+              <div class="flex-between" style="margin-bottom:6px;">
+                <div class="flex-row">
+                  <span class="badge badge-neutral">Q${idx + 1}</span>
+                  ${renderSubjectBadge(s || { name: q.subjectId })}
+                  ${renderDifficultyBadge(q.difficulty)}
+                </div>
+                <button type="button" class="btn btn-soft-danger btn-sm preview-remove-btn" data-qid="${escapeHtml(q.id)}">Remove</button>
+              </div>
+              <div style="font-weight:600;margin-bottom:6px;">${formatInlineCodeHtml(q.question)}</div>
+              ${q.code ? `<pre class="code-block">${escapeHtml(q.code)}</pre>` : ''}
+              <div class="mcq-options-mini">
+                ${q.options.map((opt, optIdx) => `
+                  <div class="mcq-opt-chip ${optIdx === q.correctIndex ? 'correct' : ''}">
+                    <strong>${letters[optIdx]}.</strong> ${formatInlineCodeHtml(opt)}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `);
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    modalContent.querySelectorAll('.preview-remove-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.selectedQuestionIds.delete(btn.dataset.qid);
+        renderBuilderQuestions();
+        renderSelectedSummary();
+        saveBuilderDraft();
+        if (state.selectedQuestionIds.size === 0) {
+          closeModal();
+        } else {
+          document.getElementById('preview-paper-btn').click();
+        }
+      });
+    });
+  });
+
   document.getElementById('auto-pick-btn').addEventListener('click', () => {
-    const count = Math.max(1, Number(document.getElementById('auto-pick-count').value) || 5);
+    const requested = Math.max(1, Number(document.getElementById('auto-pick-count').value) || 1);
     const filtered = getFilteredBuilderQuestions().filter((q) => !state.selectedQuestionIds.has(q.id));
     if (filtered.length === 0) {
       showToast('All matching questions are already selected!', 'info');
@@ -621,11 +881,15 @@
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    const picked = pool.slice(0, count);
+    const picked = pool.slice(0, Math.min(requested, pool.length));
     picked.forEach((q) => state.selectedQuestionIds.add(q.id));
     renderBuilderQuestions();
     renderSelectedSummary();
-    showToast(`Auto-selected ${picked.length} random MCQ${picked.length === 1 ? '' : 's'}!`, 'success');
+    saveBuilderDraft();
+    const note = picked.length < requested
+      ? ` (all ${picked.length} available in current filter)`
+      : '';
+    showToast(`Auto-selected ${picked.length} random MCQ${picked.length === 1 ? '' : 's'}${note}!`, 'success');
   });
 
   document.getElementById('select-all-filtered-btn').addEventListener('click', () => {
@@ -633,13 +897,16 @@
     filtered.forEach((q) => state.selectedQuestionIds.add(q.id));
     renderBuilderQuestions();
     renderSelectedSummary();
+    saveBuilderDraft();
     showToast(`Selected ${filtered.length} matching MCQs.`, 'success');
   });
 
   document.getElementById('clear-selected-btn').addEventListener('click', () => {
     state.selectedQuestionIds.clear();
+    document.getElementById('builder-selected-only-check').checked = false;
     renderBuilderQuestions();
     renderSelectedSummary();
+    saveBuilderDraft();
   });
 
   document.getElementById('builder-quick-add-mcq-btn').addEventListener('click', () => {
@@ -686,6 +953,7 @@
           : 'Exam saved as Draft!',
         'success'
       );
+      resetBuilderForm();
       await loadBootstrap();
       switchTab('overview');
     } catch (err) {
@@ -743,12 +1011,12 @@
               <button type="button" class="btn btn-soft-danger btn-sm bank-del-btn" data-qid="${escapeHtml(q.id)}">Delete</button>
             </div>
           </div>
-          <div style="font-weight:600;font-size:15px;">${escapeHtml(q.question)}</div>
+          <div style="font-weight:600;font-size:15px;">${formatInlineCodeHtml(q.question)}</div>
           ${q.code ? `<pre class="code-block">${escapeHtml(q.code)}</pre>` : ''}
           <div class="mcq-options-mini">
             ${q.options.map((opt, idx) => `
               <div class="mcq-opt-chip ${idx === q.correctIndex ? 'correct' : ''}">
-                <strong>${letters[idx]}.</strong> ${escapeHtml(opt)}
+                <strong>${letters[idx]}.</strong> ${formatInlineCodeHtml(opt)}
               </div>
             `).join('')}
           </div>

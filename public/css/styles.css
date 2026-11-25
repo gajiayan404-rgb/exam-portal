@@ -581,11 +581,16 @@ tbody tr:hover {
 
 /* ---------- Teacher Portal Tabs & Layout ---------- */
 .tab-nav {
+  position: sticky;
+  top: 65px;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 8px;
   overflow-x: auto;
   padding: 12px 0;
+  background: rgba(248, 250, 252, 0.94);
+  backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
   margin-bottom: 22px;
 }
@@ -624,9 +629,21 @@ tbody tr:hover {
   align-items: start;
 }
 
+.builder-sidebar-sticky {
+  position: sticky;
+  top: 126px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+
 @media (max-width: 960px) {
   .builder-layout {
     grid-template-columns: 1fr;
+  }
+  .builder-sidebar-sticky {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 
@@ -634,9 +651,7 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 680px;
-  overflow-y: auto;
-  padding-right: 4px;
+  padding-bottom: 12px;
 }
 
 .mcq-pick-item {
@@ -679,11 +694,14 @@ tbody tr:hover {
 }
 
 .mcq-opt-chip {
-  padding: 5px 9px;
+  padding: 6px 10px;
   border-radius: 6px;
   background: var(--surface-muted);
   color: var(--text-muted);
   border: 1px solid var(--border);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 .mcq-opt-chip.correct {
@@ -691,6 +709,17 @@ tbody tr:hover {
   color: var(--success);
   border-color: var(--success-border);
   font-weight: 600;
+}
+
+.inline-code-pill {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  white-space: nowrap;
 }
 
 /* ---------- Student Exam Interface ---------- */
