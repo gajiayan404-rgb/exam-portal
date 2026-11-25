@@ -578,6 +578,14 @@
 
     countInput.max = String(Math.max(50, available));
 
+    const rangeSlider = document.getElementById('range-slider');
+    const maxSlider = Math.min(50, filtered.length);
+    rangeSlider.max = String(maxSlider);
+    const selectedInFilter = filtered.filter((q) => state.selectedQuestionIds.has(q.id)).length;
+    const clampedSlider = Math.min(maxSlider, selectedInFilter);
+    rangeSlider.value = String(clampedSlider);
+    document.getElementById('range-slider-val').textContent = `${selectedInFilter} / ${Math.min(50, filtered.length)}`;
+
     if (filtered.length === 0) {
       hint.className = 'badge badge-neutral';
       hint.textContent = '0 matching';
@@ -627,7 +635,7 @@
     }
 
     const letters = ['A', 'B', 'C', 'D'];
-    listEl.innerHTML = filtered.map((q) => {
+    listEl.innerHTML = filtered.map((q, idx) => {
       const isSelected = state.selectedQuestionIds.has(q.id);
       const subj = subjMap.get(q.subjectId);
       return `
@@ -635,6 +643,7 @@
           <input type="checkbox" ${isSelected ? 'checked' : ''} data-qid="${escapeHtml(q.id)}" />
           <div style="flex:1;min-width:0;">
             <div class="flex-row" style="margin-bottom:6px;">
+              <span class="badge badge-neutral">#${idx + 1}</span>
               ${renderSubjectBadge(subj || { name: q.subjectId })}
               ${renderDifficultyBadge(q.difficulty)}
               ${q.isCustom ? '<span class="badge badge-primary">Custom</span>' : ''}
@@ -875,7 +884,11 @@
   });
 
   document.getElementById('auto-pick-btn').addEventListener('click', () => {
-    const requested = Math.max(1, Number(document.getElementById('auto-pick-count').value) || 1);
+    const requested = Math.max(0, Number(document.getElementById('auto-pick-count').value) || 0);
+    if (requested === 0) {
+      selectMcqRange(0, 0);
+      return;
+    }
     const filtered = getFilteredBuilderQuestions().filter((q) => !state.selectedQuestionIds.has(q.id));
     if (filtered.length === 0) {
       showToast('All matching questions are already selected!', 'info');
@@ -895,6 +908,84 @@
       ? ` (all ${picked.length} available in current filter)`
       : '';
     showToast(`Auto-selected ${picked.length} random MCQ${picked.length === 1 ? '' : 's'}${note}!`, 'success');
+  });
+
+  function selectMcqRange(fromNum, toNum, silent = false) {
+    // Temporarily uncheck Selected Only so the full current subject/difficulty list is sliced
+    const selOnlyEl = document.getElementById('builder-selected-only-check');
+    if (selOnlyEl.checked) selOnlyEl.checked = false;
+
+    const filtered = getFilteredBuilderQuestions();
+    if (filtered.length === 0) {
+      showToast('No questions match the current filter.', 'info');
+      return 0;
+    }
+
+    const from = Math.max(0, Number(fromNum) || 0);
+    const to = Math.max(0, Number(toNum) || 0);
+
+    // Clear only items belonging to the currently filtered view (preserving other subjects)
+    for (const q of filtered) {
+      state.selectedQuestionIds.delete(q.id);
+    }
+
+    let chosen = [];
+    if (to > 0 && to >= from) {
+      const startIdx = Math.max(1, from) - 1;
+      const endIdx = Math.min(filtered.length, to);
+      if (startIdx < endIdx) {
+        chosen = filtered.slice(startIdx, endIdx);
+        for (const q of chosen) {
+          state.selectedQuestionIds.add(q.id);
+        }
+      }
+    }
+
+    renderBuilderQuestions();
+    renderSelectedSummary();
+    saveBuilderDraft();
+
+    if (!silent) {
+      if (chosen.length === 0) {
+        showToast('Cleared MCQs in current filter (0 selected).', 'info');
+      } else {
+        const displayStart = Math.max(1, from);
+        const displayEnd = displayStart + chosen.length - 1;
+        showToast(`Selected ${chosen.length} MCQs (#${displayStart} to #${displayEnd})!`, 'success');
+      }
+    }
+    return chosen.length;
+  }
+
+  document.getElementById('apply-range-btn').addEventListener('click', () => {
+    const fromVal = Number(document.getElementById('range-from-input').value) || 0;
+    const toVal = Number(document.getElementById('range-to-input').value) || 0;
+    selectMcqRange(fromVal, toVal);
+  });
+
+  ['range-from-input', 'range-to-input'].forEach((id) => {
+    document.getElementById(id).addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('apply-range-btn').click();
+      }
+    });
+  });
+
+  document.getElementById('range-slider').addEventListener('input', (e) => {
+    const val = Math.max(0, Number(e.target.value) || 0);
+    document.getElementById('range-from-input').value = val === 0 ? '0' : '1';
+    document.getElementById('range-to-input').value = String(val);
+    selectMcqRange(val === 0 ? 0 : 1, val, true);
+  });
+
+  document.querySelectorAll('.range-preset-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = Number(btn.dataset.val) || 0;
+      document.getElementById('range-from-input').value = val === 0 ? '0' : '1';
+      document.getElementById('range-to-input').value = String(val);
+      selectMcqRange(val === 0 ? 0 : 1, val);
+    });
   });
 
   document.getElementById('select-all-filtered-btn').addEventListener('click', () => {

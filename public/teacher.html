@@ -146,23 +146,51 @@
           </div>
 
           <!-- Auto-select toolbar -->
-          <div class="flex-between"
+          <div class="stack-sm"
             style="background:var(--surface-muted);padding:10px 12px;border-radius:10px;border:1px solid var(--border);">
-            <div class="flex-row">
-              <span class="text-sm" style="font-weight:600;">Auto-Select:</span>
-              <input id="auto-pick-count" type="number" min="1" max="500" value="10" class="input"
-                style="width:74px;padding:6px 8px;" />
-              <button type="button" id="auto-pick-btn" class="btn btn-primary btn-sm">🎲 Pick Random MCQs</button>
-              <span class="badge badge-neutral" id="auto-pick-max-hint">Max 0 available</span>
+            <div class="flex-between">
+              <div class="flex-row">
+                <span class="text-sm" style="font-weight:600;">Random Pick:</span>
+                <input id="auto-pick-count" type="number" min="0" max="500" value="10" class="input"
+                  style="width:74px;padding:6px 8px;" />
+                <button type="button" id="auto-pick-btn" class="btn btn-primary btn-sm">🎲 Pick Random MCQs</button>
+                <span class="badge badge-neutral" id="auto-pick-max-hint">Max 0 available</span>
+              </div>
+              <div class="flex-row">
+                <label class="checkbox-row"
+                  style="background:#fff;padding:5px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;">
+                  <input type="checkbox" id="builder-selected-only-check" />
+                  <span>Selected Only</span>
+                </label>
+                <button type="button" id="select-all-filtered-btn" class="btn btn-secondary btn-sm">Select All
+                  Shown</button>
+                <button type="button" id="clear-selected-btn" class="btn btn-soft-danger btn-sm">Clear Selected</button>
+              </div>
             </div>
-            <div class="flex-row">
-              <label class="checkbox-row" style="background:#fff;padding:5px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;">
-                <input type="checkbox" id="builder-selected-only-check" />
-                <span>Selected Only</span>
-              </label>
-              <button type="button" id="select-all-filtered-btn" class="btn btn-secondary btn-sm">Select All
-                Shown</button>
-              <button type="button" id="clear-selected-btn" class="btn btn-soft-danger btn-sm">Clear Selected</button>
+
+            <!-- Range Selector (0 to 50) -->
+            <div class="flex-between" style="border-top:1px solid var(--border);padding-top:9px;">
+              <div class="flex-row">
+                <span class="text-sm" style="font-weight:600;">Select Range (0–50):</span>
+                <input id="range-from-input" type="number" min="0" max="200" value="0" class="input"
+                  style="width:66px;padding:5px 8px;" title="Start question #" />
+                <span class="text-xs text-muted">to</span>
+                <input id="range-to-input" type="number" min="0" max="200" value="50" class="input"
+                  style="width:66px;padding:5px 8px;" title="End question #" />
+                <button type="button" id="apply-range-btn" class="btn btn-soft-primary btn-sm">✓ Select 0–50</button>
+              </div>
+              <div class="flex-row">
+                <input id="range-slider" type="range" min="0" max="50" value="0"
+                  style="width:120px;accent-color:var(--primary);cursor:pointer;" title="Slide 0 to 50 MCQs" />
+                <span class="badge badge-primary" id="range-slider-val">0 / 50</span>
+                <div class="flex-row" style="gap:4px;" id="range-quick-presets">
+                  <button type="button" class="btn btn-secondary btn-sm range-preset-btn" data-val="0" style="padding:4px 7px;">0</button>
+                  <button type="button" class="btn btn-secondary btn-sm range-preset-btn" data-val="10" style="padding:4px 7px;">10</button>
+                  <button type="button" class="btn btn-secondary btn-sm range-preset-btn" data-val="20" style="padding:4px 7px;">20</button>
+                  <button type="button" class="btn btn-secondary btn-sm range-preset-btn" data-val="30" style="padding:4px 7px;">30</button>
+                  <button type="button" class="btn btn-secondary btn-sm range-preset-btn" data-val="50" style="padding:4px 7px;">50</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -173,10 +201,12 @@
         <div class="card stack-md builder-sidebar-sticky">
           <div class="flex-between">
             <h2 class="card-title">2. Exam Settings &amp; Publish</h2>
-            <button type="button" id="preview-paper-btn" class="btn btn-soft-primary btn-sm" disabled>👁 Preview Paper</button>
+            <button type="button" id="preview-paper-btn" class="btn btn-soft-primary btn-sm" disabled>👁 Preview
+              Paper</button>
           </div>
 
-          <div style="border:1px solid var(--primary-border);background:var(--primary-soft);border-radius:12px;padding:12px;">
+          <div
+            style="border:1px solid var(--primary-border);background:var(--primary-soft);border-radius:12px;padding:12px;">
             <div class="flex-between">
               <strong style="color:var(--primary);">Selected Paper Summary</strong>
               <span class="badge badge-primary" id="selected-total-badge">0 MCQs • 0 Marks</span>
@@ -262,7 +292,8 @@
               </label>
             </div>
 
-            <div id="builder-validation-hint" class="text-xs" style="padding:8px 11px;border-radius:8px;background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-border);font-weight:600;">
+            <div id="builder-validation-hint" class="text-xs"
+              style="padding:8px 11px;border-radius:8px;background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-border);font-weight:600;">
               Enter an Exam Title and select at least 1 MCQ to publish.
             </div>
 
