@@ -158,7 +158,7 @@
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
                 <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
                 ${exam.speedModeSeconds > 0 ? `<span class="badge badge-warning">⚡ Speed: ${exam.speedModeSeconds}s/Q</span>` : ''}
-                ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ Proctored</span>` : ''}
+                ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ ${exam.maxTabViolations === 1 ? 'Auto-Submit on Tab/App Switch' : 'Proctored'}</span>` : ''}
                 ${exam.requireFullscreen ? `<span class="badge badge-neutral">⛶ Fullscreen</span>` : ''}
                 ${exam.negativeMarking > 0 ? `<span class="badge badge-danger">-${exam.negativeMarking} Negative</span>` : ''}
                 ${subjBadges}
@@ -258,8 +258,9 @@
       state.examStartedAt = Date.now();
       state.proctoring.events = [];
       state.proctoring.lastTriggeredAt = 0;
-      state.proctoring.graceUntil = Date.now() + 1400;
+      state.proctoring.graceUntil = Date.now() + (exam.requireFullscreen ? 1400 : 300);
 
+      try { window.focus(); } catch {}
       if (exam.requireFullscreen && document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
@@ -295,9 +296,11 @@
     const maxV = Number(exam.maxTabViolations) || 0;
     if (exam.proctorTabSwitch !== false) {
       warnPill.classList.remove('hidden');
-      warnPill.textContent = maxV > 0
-        ? `🛡️ Proctored • ${vCount} / ${maxV} Strikes`
-        : `🛡️ Proctored • ${vCount} Warning${vCount === 1 ? '' : 's'}`;
+      warnPill.textContent = maxV === 1
+        ? '🛡️ Strict Mode: Auto-Submits if you open another Tab / App'
+        : maxV > 1
+          ? `🛡️ Proctored • ${vCount} / ${maxV} Strikes`
+          : `🛡️ Proctored • ${vCount} Warning${vCount === 1 ? '' : 's'}`;
       warnPill.className = vCount === 0
         ? 'badge badge-primary'
         : (maxV > 0 && vCount >= maxV - 1 ? 'badge badge-danger' : 'badge badge-warning');
@@ -843,11 +846,17 @@
           </div>
         ` : ''}
 
+        ${result.proctoring?.autoSubmittedReason === 'proctor-limit' ? `
+          <div class="badge badge-danger mt-2" style="padding:10px 14px;border-radius:10px;white-space:normal;">
+            🚨 <strong>Exam Auto-Submitted!</strong> You switched to another browser tab or application during the active exam.
+          </div>
+        ` : ''}
+
         ${result.proctoring ? `
           <div class="mt-2">
             <span class="badge ${result.proctoring.violationsCount > 0 ? 'badge-warning' : 'badge-success'}">
               ${result.proctoring.violationsCount > 0
-                ? `⚠️ Proctoring Flags: ${result.proctoring.violationsCount}${result.proctoring.autoSubmittedReason === 'proctor-limit' ? ' (Auto-submitted at strike limit)' : ''}`
+                ? `⚠️ Proctoring Flags: ${result.proctoring.violationsCount}${result.proctoring.autoSubmittedReason === 'proctor-limit' ? ' (Auto-submitted on tab/app switch)' : ''}`
                 : '🛡️ Proctoring Status: Clean (0 violations)'}
             </span>
           </div>

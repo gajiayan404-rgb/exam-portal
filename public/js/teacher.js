@@ -355,7 +355,7 @@
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
                 <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
                 ${exam.speedModeSeconds > 0 ? `<span class="badge badge-warning">⚡ ${exam.speedModeSeconds}s/Q</span>` : ''}
-                ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ Proctored (${exam.maxTabViolations > 0 ? `${exam.maxTabViolations} strikes` : 'Warn'})</span>` : ''}
+                ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ ${exam.maxTabViolations === 1 ? 'Auto-Submit on Tab/App Switch' : exam.maxTabViolations > 1 ? `Proctored (${exam.maxTabViolations} strikes)` : 'Proctored (Warn)'}</span>` : ''}
                 <span class="badge badge-neutral">📝 ${exam.submissionsCount} Submissions</span>
                 ${subjBadges}
               </div>
@@ -563,7 +563,7 @@
     document.getElementById('exam-neg-input').value = '0';
     document.getElementById('exam-pass-input').value = '40';
     document.getElementById('exam-speed-input').value = '0';
-    document.getElementById('exam-max-violations-input').value = '3';
+    document.getElementById('exam-max-violations-input').value = '1';
     document.getElementById('exam-live-check').checked = true;
     document.getElementById('exam-shuffle-check').checked = false;
     document.getElementById('exam-show-results-check').checked = true;
@@ -587,7 +587,7 @@
     document.getElementById('exam-neg-input').value = exam.negativeMarking || 0;
     document.getElementById('exam-pass-input').value = exam.passPercentage || 40;
     document.getElementById('exam-speed-input').value = exam.speedModeSeconds || 0;
-    document.getElementById('exam-max-violations-input').value = exam.maxTabViolations ?? 3;
+    document.getElementById('exam-max-violations-input').value = exam.maxTabViolations ?? 1;
     document.getElementById('exam-live-check').checked = Boolean(exam.isLive);
     document.getElementById('exam-shuffle-check').checked = Boolean(exam.shuffleQuestions);
     document.getElementById('exam-show-results-check').checked = exam.showResultsImmediately !== false;

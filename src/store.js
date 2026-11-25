@@ -56,7 +56,7 @@ function createInitialStore() {
         showResultsImmediately: true,
         allowRetake: true,
         proctorTabSwitch: true,
-        maxTabViolations: 3,
+        maxTabViolations: 1,
         requireFullscreen: false,
         blockCopyPaste: true,
         speedModeSeconds: 0,
@@ -508,7 +508,7 @@ class ExamStore {
     const passPercentage = Math.max(1, Math.min(100, Number(payload.passPercentage) || 40));
     const proctorTabSwitch = payload.proctorTabSwitch !== undefined ? Boolean(payload.proctorTabSwitch) : true;
     const rawMaxViolations = Number(payload.maxTabViolations);
-    const maxTabViolations = Number.isFinite(rawMaxViolations) ? Math.max(0, Math.min(20, Math.round(rawMaxViolations))) : 3;
+    const maxTabViolations = Number.isFinite(rawMaxViolations) ? Math.max(0, Math.min(20, Math.round(rawMaxViolations))) : 1;
     const requireFullscreen = Boolean(payload.requireFullscreen);
     const blockCopyPaste = payload.blockCopyPaste !== undefined ? Boolean(payload.blockCopyPaste) : true;
     const rawSpeed = Number(payload.speedModeSeconds);
@@ -614,7 +614,7 @@ class ExamStore {
           passPercentage: enriched.passPercentage,
           allowRetake: enriched.allowRetake,
           proctorTabSwitch: enriched.proctorTabSwitch !== false,
-          maxTabViolations: enriched.maxTabViolations ?? 3,
+          maxTabViolations: enriched.maxTabViolations ?? 1,
           requireFullscreen: Boolean(enriched.requireFullscreen),
           blockCopyPaste: enriched.blockCopyPaste !== false,
           speedModeSeconds: Number(enriched.speedModeSeconds) || 0,
@@ -684,7 +684,7 @@ class ExamStore {
       negativeMarking: exam.negativeMarking,
       passPercentage: exam.passPercentage,
       proctorTabSwitch: exam.proctorTabSwitch !== false,
-      maxTabViolations: exam.maxTabViolations ?? 3,
+      maxTabViolations: exam.maxTabViolations ?? 1,
       requireFullscreen: Boolean(exam.requireFullscreen),
       blockCopyPaste: exam.blockCopyPaste !== false,
       speedModeSeconds: Number(exam.speedModeSeconds) || 0,
