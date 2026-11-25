@@ -744,7 +744,7 @@
     document.getElementById('exam-retake-check').checked = true;
     document.getElementById('exam-proctor-tab-check').checked = true;
     document.getElementById('exam-block-copy-check').checked = true;
-    document.getElementById('exam-fullscreen-check').checked = false;
+    document.getElementById('exam-fullscreen-check').checked = true;
     document.getElementById('builder-selected-only-check').checked = false;
     clearBuilderDraft();
     renderBuilderQuestions();
@@ -770,7 +770,7 @@
     document.getElementById('exam-retake-check').checked = exam.allowRetake !== false;
     document.getElementById('exam-proctor-tab-check').checked = exam.proctorTabSwitch !== false;
     document.getElementById('exam-block-copy-check').checked = exam.blockCopyPaste !== false;
-    document.getElementById('exam-fullscreen-check').checked = Boolean(exam.requireFullscreen);
+    document.getElementById('exam-fullscreen-check').checked = exam.requireFullscreen !== false;
     document.getElementById('builder-selected-only-check').checked = false;
     renderBuilderQuestions();
     renderSelectedSummary();

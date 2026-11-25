@@ -57,7 +57,7 @@ function createInitialStore() {
         allowRetake: true,
         proctorTabSwitch: true,
         maxTabViolations: 1,
-        requireFullscreen: false,
+        requireFullscreen: true,
         blockCopyPaste: true,
         speedModeSeconds: 0,
         isLive: true,
@@ -536,7 +536,7 @@ class ExamStore {
     const proctorTabSwitch = payload.proctorTabSwitch !== undefined ? Boolean(payload.proctorTabSwitch) : true;
     const rawMaxViolations = Number(payload.maxTabViolations);
     const maxTabViolations = Number.isFinite(rawMaxViolations) ? Math.max(0, Math.min(20, Math.round(rawMaxViolations))) : 1;
-    const requireFullscreen = Boolean(payload.requireFullscreen);
+    const requireFullscreen = payload.requireFullscreen !== undefined ? Boolean(payload.requireFullscreen) : true;
     const blockCopyPaste = payload.blockCopyPaste !== undefined ? Boolean(payload.blockCopyPaste) : true;
     const rawSpeed = Number(payload.speedModeSeconds);
     const speedModeSeconds = Number.isFinite(rawSpeed) && rawSpeed > 0 ? Math.max(5, Math.min(300, Math.round(rawSpeed))) : 0;
@@ -642,7 +642,7 @@ class ExamStore {
           allowRetake: enriched.allowRetake,
           proctorTabSwitch: enriched.proctorTabSwitch !== false,
           maxTabViolations: enriched.maxTabViolations ?? 1,
-          requireFullscreen: Boolean(enriched.requireFullscreen),
+          requireFullscreen: enriched.requireFullscreen !== false,
           blockCopyPaste: enriched.blockCopyPaste !== false,
           speedModeSeconds: Number(enriched.speedModeSeconds) || 0,
           questionCount: enriched.questionCount,
@@ -712,7 +712,7 @@ class ExamStore {
       passPercentage: exam.passPercentage,
       proctorTabSwitch: exam.proctorTabSwitch !== false,
       maxTabViolations: exam.maxTabViolations ?? 1,
-      requireFullscreen: Boolean(exam.requireFullscreen),
+      requireFullscreen: exam.requireFullscreen !== false,
       blockCopyPaste: exam.blockCopyPaste !== false,
       speedModeSeconds: Number(exam.speedModeSeconds) || 0,
       totalMarks: questions.length * (Number(exam.marksPerQuestion) || 1),

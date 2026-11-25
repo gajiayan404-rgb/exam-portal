@@ -153,6 +153,20 @@
     <div class="modal-box" id="student-modal-content"></div>
   </div>
 
+  <!-- FULLSCREEN LOCK OVERLAY (OBSCURES QUESTIONS IF FULLSCREEN EXITED) -->
+  <div id="fullscreen-lock-overlay" class="exam-lock-overlay hidden">
+    <div class="exam-lock-card">
+      <div style="font-size:40px;margin-bottom:8px;">🔒</div>
+      <h2 style="margin:0 0 8px;font-size:22px;">Exam Screen Locked</h2>
+      <p class="text-muted text-sm" style="margin:0 0 18px;">
+        This exam requires <strong>Locked Fullscreen Mode</strong> until you submit. Questions are hidden while outside fullscreen.
+      </p>
+      <button type="button" id="reenter-fullscreen-btn" class="btn btn-primary btn-lg" style="width:100%;">
+        ⛶ Re-Enter Fullscreen to Continue
+      </button>
+    </div>
+  </div>
+
   <script src="/js/api.js"></script>
   <script src="/js/student.js"></script>
 </body>

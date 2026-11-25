@@ -9,6 +9,7 @@
   } = window.CodeAura;
 
   const STUDENT_INFO_KEY = 'codeaura_student_profile';
+  const ACTIVE_ATTEMPT_KEY = 'codeaura_active_attempt';
 
   const state = {
     liveExams: [],
@@ -248,36 +249,129 @@
         return;
       }
 
-      state.activeExam = exam;
-      state.currentIdx = 0;
-      state.answers = {};
-      state.markedReview = {};
-      state.isSubmitting = false;
-      state.totalDurationSeconds = exam.durationMinutes * 60;
-      state.remainingSeconds = state.totalDurationSeconds;
-      state.qRemainingSeconds = exam.speedModeSeconds > 0 ? exam.speedModeSeconds : 0;
-      state.examStartedAt = Date.now();
-      state.proctoring.events = [];
-      state.proctoring.lastTriggeredAt = 0;
-      state.proctoring.graceUntil = Date.now() + (exam.requireFullscreen ? 1400 : 300);
-
-      try { window.focus(); } catch {}
-      if (exam.requireFullscreen && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
+      if (exam.requireFullscreen || exam.proctorTabSwitch !== false) {
+        openLockdownGateModal(exam);
+      } else {
+        beginExamSession(exam);
       }
-
-      document.getElementById('active-exam-title').textContent = exam.title;
-      document.getElementById('active-student-meta').textContent =
-        `${state.studentProfile.name} • Roll: ${state.studentProfile.rollNumber}${state.studentProfile.batch ? ` • ${state.studentProfile.batch}` : ''} • ${exam.totalMarks} Total Marks`;
-
-      showView('exam');
-      setupProctoring(exam);
-      renderQuestion();
-      renderPalette();
-      startTimer();
     } catch (err) {
       showToast(err.message, 'error');
     }
+  }
+
+  function openLockdownGateModal(exam) {
+    const maxV = Number(exam.maxTabViolations) || 0;
+    const rules = [];
+    if (exam.requireFullscreen) {
+      rules.push('<li><strong>Locked Fullscreen Mode:</strong> Exam runs in fullscreen until you click Submit.</li>');
+    }
+    if (exam.proctorTabSwitch !== false) {
+      rules.push(
+        maxV === 1
+          ? '<li><strong>Zero Tab / App Switching:</strong> Opening another tab, website, or application will <span style="color:var(--danger);font-weight:700;">immediately auto-submit</span> your exam.</li>'
+          : maxV > 1
+            ? `<li><strong>Tab / App Monitoring:</strong> Switching tabs/apps triggers a strike (auto-submits on strike ${maxV}).</li>`
+            : '<li><strong>Tab / App Monitoring:</strong> Tab and application switches are logged for Sir.</li>'
+      );
+    }
+    if (exam.blockCopyPaste !== false) {
+      rules.push('<li><strong>Disabled Shortcuts:</strong> Copy-paste, right-click, text drag, printing, Back button, and DevTools keys are blocked.</li>');
+    }
+    if (exam.speedModeSeconds > 0) {
+      rules.push(`<li><strong>Speed Mode:</strong> Each question has a strict <strong>${exam.speedModeSeconds}s</strong> countdown timer.</li>`);
+    }
+
+    openModal(`
+      <div class="flex-between mb-2">
+        <span class="badge badge-primary">🛡️ Safe Exam Lockdown</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <h2 class="card-title" style="font-size:21px;">${escapeHtml(exam.title)}</h2>
+      <p class="text-sm text-muted" style="margin:6px 0 12px;">
+        ${exam.questionCount} MCQs • ${exam.totalMarks} Total Marks • ⏱ ${exam.durationMinutes} mins
+      </p>
+      <div style="background:var(--primary-soft);border:1px solid var(--primary-border);border-radius:12px;padding:14px 16px;margin-bottom:16px;">
+        <strong style="color:var(--primary);display:block;margin-bottom:8px;">Exam Rules (Active Until Submit):</strong>
+        <ul style="margin:0;padding-left:18px;font-size:13.5px;display:flex;flex-direction:column;gap:6px;">
+          ${rules.join('')}
+        </ul>
+      </div>
+      <div class="flex-row" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary btn-lg" id="lockdown-start-btn">🔒 Enter Locked Mode &amp; Start Exam</button>
+      </div>
+    `);
+
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+    document.getElementById('lockdown-start-btn').addEventListener('click', async () => {
+      closeModal();
+      await enterLockedFullscreen(exam);
+      beginExamSession(exam);
+    });
+  }
+
+  async function enterLockedFullscreen(exam) {
+    try { window.focus(); } catch {}
+    if (exam.requireFullscreen && document.documentElement.requestFullscreen) {
+      try {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      } catch {
+        try { await document.documentElement.requestFullscreen(); } catch {}
+      }
+      if (navigator.keyboard && typeof navigator.keyboard.lock === 'function') {
+        navigator.keyboard.lock(['Escape']).catch(() => {});
+      }
+    }
+  }
+
+  function saveActiveAttempt() {
+    if (!state.activeExam || state.isSubmitting) return;
+    try {
+      sessionStorage.setItem(ACTIVE_ATTEMPT_KEY, JSON.stringify({
+        examId: state.activeExam.id,
+        rollNumber: state.studentProfile.rollNumber,
+        name: state.studentProfile.name,
+        email: state.studentProfile.email,
+        batch: state.studentProfile.batch,
+        examStartedAt: state.examStartedAt,
+        currentIdx: state.currentIdx,
+        answers: state.answers,
+        markedReview: state.markedReview,
+        events: state.proctoring.events
+      }));
+    } catch {}
+  }
+
+  function clearActiveAttempt() {
+    try { sessionStorage.removeItem(ACTIVE_ATTEMPT_KEY); } catch {}
+  }
+
+  function beginExamSession(exam, restored = null) {
+    state.activeExam = exam;
+    state.currentIdx = restored ? Math.min(exam.questions.length - 1, Number(restored.currentIdx) || 0) : 0;
+    state.answers = restored?.answers || {};
+    state.markedReview = restored?.markedReview || {};
+    state.isSubmitting = false;
+    state.totalDurationSeconds = exam.durationMinutes * 60;
+    state.examStartedAt = restored?.examStartedAt || Date.now();
+    const elapsedSoFar = Math.max(0, Math.floor((Date.now() - state.examStartedAt) / 1000));
+    state.remainingSeconds = Math.max(1, state.totalDurationSeconds - elapsedSoFar);
+    state.qRemainingSeconds = exam.speedModeSeconds > 0 ? exam.speedModeSeconds : 0;
+    state.proctoring.events = Array.isArray(restored?.events) ? restored.events : [];
+    state.proctoring.lastTriggeredAt = 0;
+    state.proctoring.graceUntil = Date.now() + (exam.requireFullscreen ? 1400 : 300);
+
+    document.getElementById('active-exam-title').textContent = exam.title;
+    document.getElementById('active-student-meta').textContent =
+      `${state.studentProfile.name} • Roll: ${state.studentProfile.rollNumber}${state.studentProfile.batch ? ` • ${state.studentProfile.batch}` : ''} • ${exam.totalMarks} Total Marks`;
+
+    showView('exam');
+    setupProctoring(exam);
+    renderQuestion();
+    renderPalette();
+    saveActiveAttempt();
+    startTimer();
   }
 
   // ---------- Anti-Cheating & Proctoring ----------
@@ -315,6 +409,18 @@
 
     const needsFs = Boolean(exam.requireFullscreen && !document.fullscreenElement);
     fsBtn.classList.toggle('hidden', !needsFs);
+
+    const fsOverlay = document.getElementById('fullscreen-lock-overlay');
+    if (fsOverlay) {
+      const showOverlay = Boolean(
+        exam.requireFullscreen &&
+        !document.fullscreenElement &&
+        Date.now() > state.proctoring.graceUntil &&
+        !state.isSubmitting &&
+        (exam.proctorTabSwitch === false || maxV !== 1)
+      );
+      fsOverlay.classList.toggle('hidden', !showOverlay);
+    }
   }
 
   function recordViolation(type) {
@@ -331,6 +437,7 @@
       questionNumber: state.currentIdx + 1,
       at: new Date().toISOString()
     });
+    saveActiveAttempt();
 
     updateProctorUi();
     const count = state.proctoring.events.length;
@@ -370,6 +477,47 @@
 
   function setupProctoring(exam) {
     teardownProctoring();
+    document.body.classList.add('exam-active-lock');
+
+    // Lock browser Back / Forward buttons until exam is submitted
+    try { history.pushState({ codeauraExamLock: true }, '', window.location.href); } catch {}
+    const onPopState = () => {
+      if (!state.activeExam || state.isSubmitting) return;
+      try { history.pushState({ codeauraExamLock: true }, '', window.location.href); } catch {}
+      showToast('🔒 Navigation is locked until you submit the exam!', 'error');
+    };
+    window.addEventListener('popstate', onPopState);
+    state.proctoring.cleanupFns.push(() => window.removeEventListener('popstate', onPopState));
+
+    // Warn / block accidental page refresh or tab close
+    const onBeforeUnload = (e) => {
+      if (!state.activeExam || state.isSubmitting) return;
+      saveActiveAttempt();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    state.proctoring.cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload));
+
+    // Block navigation/refresh/escape/devtools shortcuts during locked exam
+    const blockNavigationKeys = (e) => {
+      if (!state.activeExam || state.isSubmitting) return;
+      const k = e.key.toUpperCase();
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (
+        k === 'F5' ||
+        k === 'F11' ||
+        k === 'F12' ||
+        (e.altKey && (k === 'ARROWLEFT' || k === 'ARROWRIGHT')) ||
+        (ctrl && ['R', 'W', 'T', 'N', 'L', 'P', 'S', 'U'].includes(k)) ||
+        (ctrl && e.shiftKey && ['I', 'J', 'C', 'K', 'N'].includes(k))
+      ) {
+        e.preventDefault();
+        showToast('🔒 Browser navigation & shortcuts are locked until you submit.', 'error');
+      }
+    };
+    document.addEventListener('keydown', blockNavigationKeys, true);
+    state.proctoring.cleanupFns.push(() => document.removeEventListener('keydown', blockNavigationKeys, true));
 
     if (exam.blockCopyPaste !== false) {
       examView.classList.add('proctor-no-select');
@@ -377,24 +525,20 @@
         e.preventDefault();
         showToast('Copy-paste and right-click are disabled during this exam.', 'error');
       };
-      const blockKeys = (e) => {
+      const blockCopyKeys = (e) => {
         const k = e.key.toUpperCase();
         const ctrl = e.ctrlKey || e.metaKey;
-        if (
-          k === 'F12' ||
-          (ctrl && e.shiftKey && ['I', 'J', 'C', 'K'].includes(k)) ||
-          (ctrl && ['C', 'X', 'U', 'P', 'S'].includes(k))
-        ) {
+        if (ctrl && ['C', 'X'].includes(k)) {
           e.preventDefault();
-          showToast('Keyboard shortcuts & copying are blocked during the exam.', 'error');
+          showToast('Copying text is blocked during the exam.', 'error');
         }
       };
-      ['contextmenu', 'copy', 'cut', 'paste'].forEach((evName) => {
+      ['contextmenu', 'copy', 'cut', 'paste', 'dragstart', 'drop'].forEach((evName) => {
         examView.addEventListener(evName, blockEv);
         state.proctoring.cleanupFns.push(() => examView.removeEventListener(evName, blockEv));
       });
-      document.addEventListener('keydown', blockKeys, true);
-      state.proctoring.cleanupFns.push(() => document.removeEventListener('keydown', blockKeys, true));
+      document.addEventListener('keydown', blockCopyKeys, true);
+      state.proctoring.cleanupFns.push(() => document.removeEventListener('keydown', blockCopyKeys, true));
     }
 
     if (exam.proctorTabSwitch !== false) {
@@ -428,23 +572,30 @@
     }
 
     const fsBtn = document.getElementById('enter-fullscreen-btn');
-    const onFsClick = () => {
-      if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-    };
+    const reenterFsBtn = document.getElementById('reenter-fullscreen-btn');
+    const onFsClick = () => enterLockedFullscreen(exam);
     fsBtn.addEventListener('click', onFsClick);
-    state.proctoring.cleanupFns.push(() => fsBtn.removeEventListener('click', onFsClick));
+    reenterFsBtn.addEventListener('click', onFsClick);
+    state.proctoring.cleanupFns.push(() => {
+      fsBtn.removeEventListener('click', onFsClick);
+      reenterFsBtn.removeEventListener('click', onFsClick);
+    });
 
     updateProctorUi();
   }
 
   function teardownProctoring() {
+    document.body.classList.remove('exam-active-lock');
+    const fsOverlay = document.getElementById('fullscreen-lock-overlay');
+    if (fsOverlay) fsOverlay.classList.add('hidden');
     examView.classList.remove('proctor-no-select');
     for (const fn of state.proctoring.cleanupFns) {
       try { fn(); } catch {}
     }
     state.proctoring.cleanupFns = [];
+    if (navigator.keyboard && typeof navigator.keyboard.unlock === 'function') {
+      try { navigator.keyboard.unlock(); } catch {}
+    }
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(() => {});
     }
@@ -545,6 +696,7 @@
     optListEl.querySelectorAll('.option-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         state.answers[q.id] = Number(btn.dataset.opt);
+        saveActiveAttempt();
         renderQuestion();
         renderPalette();
       });
@@ -724,6 +876,7 @@
       });
 
       state.activeExam = null;
+      clearActiveAttempt();
       renderResultView(res.result);
       showView('result');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -931,8 +1084,34 @@
     }
   });
 
+  async function restoreActiveAttempt() {
+    try {
+      const raw = sessionStorage.getItem(ACTIVE_ATTEMPT_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved || !saved.examId || !saved.rollNumber) return;
+      state.studentProfile = {
+        name: saved.name || '',
+        rollNumber: saved.rollNumber || '',
+        email: saved.email || '',
+        batch: saved.batch || ''
+      };
+      const res = await apiFetch(
+        `/api/student/exams/${encodeURIComponent(saved.examId)}?roll=${encodeURIComponent(saved.rollNumber)}`
+      );
+      if (!res.exam) {
+        clearActiveAttempt();
+        return;
+      }
+      beginExamSession(res.exam, saved);
+      showToast('Resumed your locked exam session with original timer.', 'info');
+    } catch {
+      clearActiveAttempt();
+    }
+  }
+
   // Initialize
   loadSavedProfile();
-  loadLiveExams();
+  loadLiveExams().then(() => restoreActiveAttempt());
   connectSSE();
 })();

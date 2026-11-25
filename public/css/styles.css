@@ -1020,3 +1020,46 @@ tbody tr:hover {
   border-color: var(--danger-border);
   animation: pulse 0.9s infinite;
 }
+
+body.exam-active-lock .brand {
+  pointer-events: none;
+  cursor: default;
+}
+
+.exam-lock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(14px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #fff;
+}
+
+.exam-lock-card {
+  max-width: 480px;
+  width: 100%;
+  background: #ffffff;
+  color: var(--text);
+  border-radius: 18px;
+  padding: 28px;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+
+@media print {
+  body.exam-active-lock #student-exam-view,
+  body.exam-active-lock .topbar {
+    display: none !important;
+  }
+  body.exam-active-lock::after {
+    content: "Printing is disabled during an active proctored exam.";
+    display: block;
+    padding: 40px;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+  }
+}
