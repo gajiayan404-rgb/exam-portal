@@ -576,10 +576,7 @@
     const pickBtn = document.getElementById('auto-pick-btn');
     const hint = document.getElementById('auto-pick-max-hint');
 
-    countInput.max = String(Math.max(1, available));
-    if (available > 0 && Number(countInput.value) > available) {
-      countInput.value = String(available);
-    }
+    countInput.max = String(Math.max(50, available));
 
     if (filtered.length === 0) {
       hint.className = 'badge badge-neutral';
@@ -867,6 +864,14 @@
         }
       });
     });
+  });
+
+  document.getElementById('auto-pick-count').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const btn = document.getElementById('auto-pick-btn');
+      if (!btn.disabled) btn.click();
+    }
   });
 
   document.getElementById('auto-pick-btn').addEventListener('click', () => {

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sir / Teacher Portal — CodeAura Exam</title>
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
+
 <body>
   <header class="topbar">
     <div class="container topbar-inner">
@@ -22,7 +24,8 @@
       </div>
       <div class="topbar-actions" id="teacher-topbar-actions">
         <a href="/student" target="_blank" class="btn btn-secondary btn-sm">Preview Student Portal ↗</a>
-        <button type="button" id="copy-student-url-btn" class="btn btn-soft-primary btn-sm hidden">Copy Student Link</button>
+        <button type="button" id="copy-student-url-btn" class="btn btn-soft-primary btn-sm hidden">Copy Student
+          Link</button>
         <button type="button" id="teacher-logout-btn" class="btn btn-ghost btn-sm hidden">Logout</button>
       </div>
     </div>
@@ -43,9 +46,11 @@
       <form id="teacher-login-form" class="stack-md">
         <div class="form-group">
           <label for="teacher-pin-input">Teacher PIN</label>
-          <input id="teacher-pin-input" type="password" class="input" placeholder="Enter PIN" autocomplete="current-password" required />
+          <input id="teacher-pin-input" type="password" class="input" placeholder="Enter PIN"
+            autocomplete="current-password" required />
         </div>
-        <div id="default-pin-hint" class="badge badge-warning hidden" style="justify-content:center;padding:8px 12px;border-radius:8px;white-space:normal;text-align:center;">
+        <div id="default-pin-hint" class="badge badge-warning hidden"
+          style="justify-content:center;padding:8px 12px;border-radius:8px;white-space:normal;text-align:center;">
           Default PIN is <strong>1234</strong> — you can change it anytime in Settings.
         </div>
         <div id="login-error-msg" class="text-sm hidden" style="color:var(--danger);font-weight:600;"></div>
@@ -68,11 +73,13 @@
     <section id="tab-overview" class="tab-panel stack-lg">
       <div class="stats-grid" id="overview-stats"></div>
 
-      <div class="card" style="background:linear-gradient(135deg,#eef2ff 0%,#f0f9ff 100%);border-color:var(--primary-border);">
+      <div class="card"
+        style="background:linear-gradient(135deg,#eef2ff 0%,#f0f9ff 100%);border-color:var(--primary-border);">
         <div class="flex-between">
           <div>
             <h2 class="card-title" style="color:#1e1b4b;">Student Portal Live Link</h2>
-            <p class="card-subtitle">Share this link with your class — every MCQ you mark Live appears automatically on their screens.</p>
+            <p class="card-subtitle">Share this link with your class — every MCQ you mark Live appears automatically on
+              their screens.</p>
           </div>
           <div class="flex-row" id="teacher-share-links"></div>
         </div>
@@ -95,11 +102,13 @@
       <div class="card card-compact flex-between" style="background:#f8fafc;">
         <div>
           <strong id="builder-mode-title" style="font-size:16px;">Create New Exam — Select MCQs for Students</strong>
-          <div class="text-sm text-muted">Tick MCQs manually or use Auto-Pick Random MCQs, then click Push to Student Portal.</div>
+          <div class="text-sm text-muted">Tick MCQs manually or use Auto-Pick Random MCQs, then click Push to Student
+            Portal.</div>
         </div>
         <div class="flex-row">
           <button type="button" id="builder-reset-btn" class="btn btn-secondary btn-sm">+ Start Blank Exam</button>
-          <button type="button" id="builder-quick-add-mcq-btn" class="btn btn-soft-primary btn-sm">+ Quick Add Custom MCQ</button>
+          <button type="button" id="builder-quick-add-mcq-btn" class="btn btn-soft-primary btn-sm">+ Quick Add Custom
+            MCQ</button>
         </div>
       </div>
 
@@ -109,7 +118,8 @@
           <div class="card-header" style="margin-bottom:0;">
             <div>
               <h2 class="card-title">1. Select MCQs from Question Bank</h2>
-              <p class="card-subtitle">Filter by subject (HTML, CSS, JavaScript, Python...) or auto-pick random questions.</p>
+              <p class="card-subtitle">Filter by subject (HTML, CSS, JavaScript, Python...) or auto-pick random
+                questions.</p>
             </div>
             <span class="badge badge-primary" id="builder-filter-count">0 matching</span>
           </div>
@@ -130,15 +140,18 @@
             </div>
             <div class="form-group">
               <label for="builder-search-filter">Search Question / Code</label>
-              <input id="builder-search-filter" type="text" class="input" placeholder="e.g. flexbox, array, <h1>, def..." />
+              <input id="builder-search-filter" type="text" class="input"
+                placeholder="e.g. flexbox, array, <h1>, def..." />
             </div>
           </div>
 
           <!-- Auto-select toolbar -->
-          <div class="flex-between" style="background:var(--surface-muted);padding:10px 12px;border-radius:10px;border:1px solid var(--border);">
+          <div class="flex-between"
+            style="background:var(--surface-muted);padding:10px 12px;border-radius:10px;border:1px solid var(--border);">
             <div class="flex-row">
               <span class="text-sm" style="font-weight:600;">Auto-Select:</span>
-              <input id="auto-pick-count" type="number" min="1" max="100" value="5" class="input" style="width:74px;padding:6px 8px;" />
+              <input id="auto-pick-count" type="number" min="1" max="500" value="10" class="input"
+                style="width:74px;padding:6px 8px;" />
               <button type="button" id="auto-pick-btn" class="btn btn-primary btn-sm">🎲 Pick Random MCQs</button>
               <span class="badge badge-neutral" id="auto-pick-max-hint">Max 0 available</span>
             </div>
@@ -147,7 +160,8 @@
                 <input type="checkbox" id="builder-selected-only-check" />
                 <span>Selected Only</span>
               </label>
-              <button type="button" id="select-all-filtered-btn" class="btn btn-secondary btn-sm">Select All Shown</button>
+              <button type="button" id="select-all-filtered-btn" class="btn btn-secondary btn-sm">Select All
+                Shown</button>
               <button type="button" id="clear-selected-btn" class="btn btn-soft-danger btn-sm">Clear Selected</button>
             </div>
           </div>
@@ -175,12 +189,14 @@
             <input type="hidden" id="exam-edit-id" value="" />
             <div class="form-group">
               <label for="exam-title-input">Exam Title *</label>
-              <input id="exam-title-input" type="text" class="input" placeholder="e.g. HTML, CSS & JS Weekly Test" required />
+              <input id="exam-title-input" type="text" class="input" placeholder="e.g. HTML, CSS & JS Weekly Test"
+                required />
             </div>
 
             <div class="form-group">
               <label for="exam-desc-input">Instructions for Students (optional)</label>
-              <textarea id="exam-desc-input" class="textarea" style="min-height:60px;" placeholder="Read each code snippet carefully before choosing an option."></textarea>
+              <textarea id="exam-desc-input" class="textarea" style="min-height:60px;"
+                placeholder="Read each code snippet carefully before choosing an option."></textarea>
             </div>
 
             <div class="form-grid" style="grid-template-columns:1fr 1fr;">
@@ -202,7 +218,8 @@
               </div>
               <div class="form-group">
                 <label for="exam-speed-input">Speed Mode (Sec / Q, 0=Off)</label>
-                <input id="exam-speed-input" type="number" min="0" max="300" step="5" value="0" class="input" placeholder="0 = Off" />
+                <input id="exam-speed-input" type="number" min="0" max="300" step="5" value="0" class="input"
+                  placeholder="0 = Off" />
               </div>
               <div class="form-group">
                 <label for="exam-max-violations-input">Tab/App Switch Strikes (1=Instant Submit, 0=Warn)</label>
@@ -228,7 +245,9 @@
                 <span>Allow multiple attempts per Roll No</span>
               </label>
               <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;" />
-              <div class="text-xs" style="font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:0.04em;">🛡️ Anti-Cheating &amp; Proctoring</div>
+              <div class="text-xs"
+                style="font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:0.04em;">🛡️
+                Anti-Cheating &amp; Proctoring</div>
               <label class="checkbox-row">
                 <input type="checkbox" id="exam-proctor-tab-check" checked />
                 <span>Auto-submit if student opens another tab or app</span>
@@ -261,7 +280,8 @@
         <div class="card-header">
           <div>
             <h2 class="card-title">Programming Subjects</h2>
-            <p class="card-subtitle">HTML, CSS, JavaScript, Python are built-in. Add more languages or topics anytime.</p>
+            <p class="card-subtitle">HTML, CSS, JavaScript, Python are built-in. Add more languages or topics anytime.
+            </p>
           </div>
           <button type="button" id="open-add-subject-btn" class="btn btn-secondary">+ Add New Subject</button>
         </div>
@@ -310,7 +330,8 @@
         <div class="card-header">
           <div>
             <h2 class="card-title">Student Auto-Graded Marks &amp; Leaderboard</h2>
-            <p class="card-subtitle">Live scores submitted by students. Click any student to inspect their checked answer sheet.</p>
+            <p class="card-subtitle">Live scores submitted by students. Click any student to inspect their checked
+              answer sheet.</p>
           </div>
           <div class="flex-row">
             <button type="button" id="refresh-results-btn" class="btn btn-secondary btn-sm">↻ Refresh</button>
@@ -389,13 +410,15 @@
           <div class="card-header" style="margin-bottom:8px;">
             <div>
               <h2 class="card-title">📧 Auto-Email Marks on Exam Submit</h2>
-              <p class="card-subtitle">Automatically email checked marks &amp; answer report whenever a student submits.</p>
+              <p class="card-subtitle">Automatically email checked marks &amp; answer report whenever a student submits.
+              </p>
             </div>
             <span class="badge badge-neutral" id="email-status-badge">Disabled</span>
           </div>
 
           <form id="email-settings-form" class="stack-md">
-            <label class="checkbox-row" style="background:var(--primary-soft);padding:10px 12px;border-radius:10px;border:1px solid var(--primary-border);">
+            <label class="checkbox-row"
+              style="background:var(--primary-soft);padding:10px 12px;border-radius:10px;border:1px solid var(--primary-border);">
               <input type="checkbox" id="set-email-enabled" />
               <span><strong>Enable Automatic Email Sending on Submit</strong></span>
             </label>
@@ -437,13 +460,15 @@
                   App Password / SMTP Password
                   <span id="smtp-pass-status" class="text-xs text-muted"></span>
                 </label>
-                <input id="set-smtp-pass" type="password" class="input" placeholder="16-char Gmail App Password" autocomplete="new-password" />
+                <input id="set-smtp-pass" type="password" class="input" placeholder="16-char Gmail App Password"
+                  autocomplete="new-password" />
               </div>
             </div>
 
             <div class="form-group">
               <label for="set-teacher-emails">Sir / Teacher Email(s) to Receive Student Marks</label>
-              <input id="set-teacher-emails" type="text" class="input" placeholder="sir@gmail.com (separate multiple with commas)" />
+              <input id="set-teacher-emails" type="text" class="input"
+                placeholder="sir@gmail.com (separate multiple with commas)" />
             </div>
 
             <div class="stack-sm" style="background:var(--surface-muted);padding:12px;border-radius:10px;">
@@ -461,8 +486,11 @@
               </label>
             </div>
 
-            <div class="text-xs text-muted" style="background:var(--warning-soft);border:1px solid var(--warning-border);padding:9px 12px;border-radius:8px;">
-              💡 <strong>Gmail Tip:</strong> Enable 2-Step Verification on your Google Account, then generate a 16-character <strong>App Password</strong> under Google Account → Security → App Passwords and paste it above.
+            <div class="text-xs text-muted"
+              style="background:var(--warning-soft);border:1px solid var(--warning-border);padding:9px 12px;border-radius:8px;">
+              💡 <strong>Gmail Tip:</strong> Enable 2-Step Verification on your Google Account, then generate a
+              16-character <strong>App Password</strong> under Google Account → Security → App Passwords and paste it
+              above.
             </div>
 
             <div class="flex-row">
@@ -483,4 +511,5 @@
   <script src="/js/api.js"></script>
   <script src="/js/teacher.js"></script>
 </body>
+
 </html>

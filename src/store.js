@@ -66,7 +66,8 @@ function createInitialStore() {
         updatedAt: now
       }
     ],
-    submissions: []
+    submissions: [],
+    deletedSeedIds: []
   };
 }
 
@@ -88,7 +89,24 @@ class ExamStore {
     try {
       const raw = fs.readFileSync(this.storePath, 'utf8');
       const parsed = JSON.parse(raw);
-      return {
+      const deletedSeedIds = Array.isArray(parsed.deletedSeedIds) ? parsed.deletedSeedIds : [];
+      const deletedSet = new Set(deletedSeedIds);
+      const loadedQuestions = Array.isArray(parsed.questions) ? parsed.questions : [];
+      const existingIds = new Set(loadedQuestions.map((q) => q.id));
+      const now = new Date().toISOString();
+      let seedAdded = false;
+      for (const seedQ of SEED_QUESTIONS) {
+        if (!existingIds.has(seedQ.id) && !deletedSet.has(seedQ.id)) {
+          loadedQuestions.push({
+            ...seedQ,
+            isCustom: false,
+            createdAt: now
+          });
+          seedAdded = true;
+        }
+      }
+
+      const loaded = {
         settings: {
           instituteName: 'CodeAura Classroom',
           teacherName: 'Sir',
@@ -113,10 +131,15 @@ class ExamStore {
         subjects: Array.isArray(parsed.subjects) && parsed.subjects.length > 0
           ? parsed.subjects
           : DEFAULT_SUBJECTS.map((s) => ({ ...s })),
-        questions: Array.isArray(parsed.questions) ? parsed.questions : [],
+        questions: loadedQuestions,
         exams: Array.isArray(parsed.exams) ? parsed.exams : [],
-        submissions: Array.isArray(parsed.submissions) ? parsed.submissions : []
+        submissions: Array.isArray(parsed.submissions) ? parsed.submissions : [],
+        deletedSeedIds
       };
+      if (seedAdded) {
+        this._writeSync(loaded);
+      }
+      return loaded;
     } catch (err) {
       const backupPath = `${this.storePath}.corrupt-${Date.now()}`;
       try {
@@ -435,7 +458,11 @@ class ExamStore {
       err.statusCode = 404;
       throw err;
     }
-    this.data.questions.splice(idx, 1);
+    const [removed] = this.data.questions.splice(idx, 1);
+    if (removed && !removed.isCustom) {
+      if (!Array.isArray(this.data.deletedSeedIds)) this.data.deletedSeedIds = [];
+      if (!this.data.deletedSeedIds.includes(id)) this.data.deletedSeedIds.push(id);
+    }
     for (const exam of this.data.exams) {
       exam.questionIds = exam.questionIds.filter((qId) => qId !== id);
     }

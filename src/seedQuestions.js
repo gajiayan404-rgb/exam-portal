@@ -365,6 +365,221 @@ const SEED_QUESTIONS = [
     correctIndex: 2,
     explanation: '<textarea> defines a multi-line text input control.'
   },
+  {
+    id: 'html-31',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which tag creates an unordered (bulleted) list?',
+    code: '',
+    options: ['<ol>', '<ul>', '<li>', '<list>'],
+    correctIndex: 1,
+    explanation: '<ul> defines an unordered (bulleted) list containing <li> items.'
+  },
+  {
+    id: 'html-32',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which HTML tag defines a standard clickable button?',
+    code: '',
+    options: ['<click>', '<btn>', '<button>', '<press>'],
+    correctIndex: 2,
+    explanation: '<button> creates a clickable button element that can also contain text or icons.'
+  },
+  {
+    id: 'html-33',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which input type allows users to choose files from their computer or phone to upload?',
+    code: '',
+    options: ['type="upload"', 'type="document"', 'type="file"', 'type="attach"'],
+    correctIndex: 2,
+    explanation: '<input type="file"> lets the user pick one or more files from device storage.'
+  },
+  {
+    id: 'html-34',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which HTML attribute assigns a unique identifier to a single element on a page?',
+    code: '',
+    options: ['class', 'id', 'key', 'uid'],
+    correctIndex: 1,
+    explanation: 'The id attribute must be unique across the entire HTML document.'
+  },
+  {
+    id: 'html-35',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which semantic HTML5 tag represents the footer section at the bottom of a page or article?',
+    code: '',
+    options: ['<bottom>', '<end>', '<footer>', '<aside>'],
+    correctIndex: 2,
+    explanation: '<footer> represents footer content such as copyright, contact links, or author info.'
+  },
+  {
+    id: 'html-36',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which HTML tag defines a header cell in a table (bold and centered by default)?',
+    code: '',
+    options: ['<td>', '<th>', '<thead>', '<tcell>'],
+    correctIndex: 1,
+    explanation: '<th> defines a table header cell, while <td> defines a regular data cell.'
+  },
+  {
+    id: 'html-37',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which attribute displays temporary hint text inside an empty <input> field?',
+    code: '',
+    options: ['placeholder', 'hint', 'value', 'tooltip'],
+    correctIndex: 0,
+    explanation: 'placeholder shows a short hint inside the input box until the user types a value.'
+  },
+  {
+    id: 'html-38',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which input type automatically checks for an email format when submitting a form?',
+    code: '',
+    options: ['type="mail"', 'type="email"', 'type="address"', 'type="contact"'],
+    correctIndex: 1,
+    explanation: '<input type="email"> validates email format natively and triggers an email keyboard on mobile.'
+  },
+  {
+    id: 'html-39',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'Which HTML tag embeds another webpage inside the current HTML document?',
+    code: '',
+    options: ['<embed-page>', '<window>', '<iframe>', '<portal>'],
+    correctIndex: 2,
+    explanation: '<iframe> (inline frame) embeds another HTML document within the current page.'
+  },
+  {
+    id: 'html-40',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'Which attribute on <audio> or <video> adds native play, pause, and volume controls?',
+    code: '<audio src="song.mp3" ???></audio>',
+    options: ['autoplay', 'controls', 'player', 'buttons'],
+    correctIndex: 1,
+    explanation: 'The boolean attribute controls tells the browser to display built-in media playback controls.'
+  },
+  {
+    id: 'html-41',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'Inside a description list (<dl>), which tag specifies each term/name?',
+    code: '',
+    options: ['<dt>', '<dd>', '<dl-item>', '<li>'],
+    correctIndex: 0,
+    explanation: '<dt> defines the term and <dd> defines its description inside <dl>.'
+  },
+  {
+    id: 'html-42',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'What happens when the disabled attribute is set on a form <input>?',
+    code: '<input type="text" name="code" value="A1" disabled>',
+    options: [
+      'The user can copy but not edit, and its value is still submitted',
+      'The element disappears from layout completely',
+      'The user cannot focus/edit it and its value is NOT submitted with the form',
+      'It only changes the border color'
+    ],
+    correctIndex: 2,
+    explanation: 'Unlike readonly, a disabled input cannot be focused and its value is omitted from form submission.'
+  },
+  {
+    id: 'html-43',
+    subjectId: 'html',
+    difficulty: 'Easy',
+    question: 'Which tag inside <head> specifies UTF-8 character encoding for an HTML5 page?',
+    code: '',
+    options: ['<encoding="UTF-8">', '<meta charset="UTF-8">', '<charset utf="8">', '<html lang="utf-8">'],
+    correctIndex: 1,
+    explanation: '<meta charset="UTF-8"> declares the character encoding for the document.'
+  },
+  {
+    id: 'html-44',
+    subjectId: 'html',
+    difficulty: 'Hard',
+    question: 'What does adding novalidate to a <form> element do?',
+    code: '<form action="/save" novalidate>',
+    options: [
+      'Clears all input values before sending',
+      'Encrypts the form data',
+      'Disables the browser\'s built-in HTML validation on submit',
+      'Makes all fields optional permanently'
+    ],
+    correctIndex: 2,
+    explanation: 'novalidate bypasses native browser validation constraints (often used when handling validation in JS).'
+  },
+  {
+    id: 'html-45',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'Which HTML element groups related form controls together with a caption via <legend>?',
+    code: '',
+    options: ['<formgroup>', '<fieldset>', '<section>', '<optgroup>'],
+    correctIndex: 1,
+    explanation: '<fieldset> groups related form inputs and labels them with a <legend>.'
+  },
+  {
+    id: 'html-46',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'Which inline HTML5 tag highlights text for reference or emphasis (usually yellow)?',
+    code: '',
+    options: ['<highlight>', '<strong>', '<mark>', '<em>'],
+    correctIndex: 2,
+    explanation: '<mark> represents marked or highlighted text for relevance.'
+  },
+  {
+    id: 'html-47',
+    subjectId: 'html',
+    difficulty: 'Medium',
+    question: 'Which attribute on an <a> tag tells the browser to download the file instead of opening it?',
+    code: '<a href="/notes.pdf" ???>Get Notes</a>',
+    options: ['download', 'save-as', 'attachment', 'file'],
+    correctIndex: 0,
+    explanation: 'The download attribute prompts the browser to save the linked URL as a file download.'
+  },
+  {
+    id: 'html-48',
+    subjectId: 'html',
+    difficulty: 'Hard',
+    question: 'Inside a <picture> element, which tag provides alternative image sources for different media queries or formats?',
+    code: '',
+    options: ['<imgset>', '<source>', '<media-src>', '<alt-img>'],
+    correctIndex: 1,
+    explanation: '<picture> uses zero or more <source> elements and one fallback <img> element.'
+  },
+  {
+    id: 'html-49',
+    subjectId: 'html',
+    difficulty: 'Hard',
+    question: 'Why is rel="noopener noreferrer" recommended on external links using target="_blank"?',
+    code: '<a href="https://external.example" target="_blank" rel="noopener noreferrer">Open</a>',
+    options: [
+      'It forces the page to load twice as fast',
+      'It prevents the new tab from accessing window.opener and hides the referrer header',
+      'It blocks JavaScript on the current page',
+      'It translates the external page automatically'
+    ],
+    correctIndex: 1,
+    explanation: 'noopener prevents reverse tabnabbing via window.opener, and noreferrer omits the Referer header.'
+  },
+  {
+    id: 'html-50',
+    subjectId: 'html',
+    difficulty: 'Hard',
+    question: 'Which native HTML5 element creates an expandable accordion/disclosure box paired with <summary>?',
+    code: '',
+    options: ['<accordion>', '<collapse>', '<details>', '<expand>'],
+    correctIndex: 2,
+    explanation: '<details> with a <summary> child creates a native toggleable disclosure widget without JS.'
+  },
 
   // ===================== CSS (30) =====================
   {
@@ -716,6 +931,241 @@ const SEED_QUESTIONS = [
     options: ['bgcolor', 'color-bg', 'background-color', 'surface'],
     correctIndex: 2,
     explanation: 'background-color (or the shorthand background) defines an element\'s background fill color.'
+  },
+  {
+    id: 'css-31',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'Which CSS property controls the size of text?',
+    code: '',
+    options: ['text-size', 'font-size', 'text-height', 'font-scale'],
+    correctIndex: 1,
+    explanation: 'font-size sets the height/size of the font (e.g., 16px, 1.2rem).'
+  },
+  {
+    id: 'css-32',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'Which CSS property horizontally aligns text inside a block element?',
+    code: '',
+    options: ['align-text', 'horizontal-align', 'text-align', 'justify-text'],
+    correctIndex: 2,
+    explanation: 'text-align accepts left, right, center, or justify.'
+  },
+  {
+    id: 'css-33',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'Which property adds a drop shadow around an element\'s box?',
+    code: '',
+    options: ['shadow', 'box-shadow', 'drop-shadow', 'border-shadow'],
+    correctIndex: 1,
+    explanation: 'box-shadow adds one or more shadows around an element\'s frame.'
+  },
+  {
+    id: 'css-34',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'Which CSS rule displays a hand/finger pointer cursor when hovering over an element?',
+    code: '',
+    options: ['mouse: pointer;', 'pointer: hand;', 'cursor: pointer;', 'hover-cursor: hand;'],
+    correctIndex: 2,
+    explanation: 'cursor: pointer; displays the standard clickable link pointer cursor.'
+  },
+  {
+    id: 'css-35',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'Which viewport CSS unit equals 1% of the browser viewport\'s HEIGHT?',
+    code: '',
+    options: ['vw', 'vh', 'vmin', '%'],
+    correctIndex: 1,
+    explanation: '1vh equals 1% of viewport height; 1vw equals 1% of viewport width.'
+  },
+  {
+    id: 'css-36',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'Which CSS property controls the transparency level of an element from 0 (invisible) to 1 (opaque)?',
+    code: '',
+    options: ['alpha', 'visibility', 'opacity', 'transparent'],
+    correctIndex: 2,
+    explanation: 'opacity accepts a number between 0.0 and 1.0 to set element transparency.'
+  },
+  {
+    id: 'css-37',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'What does overflow: hidden; do when child content exceeds the container box?',
+    code: '',
+    options: [
+      'Automatically expands the container height',
+      'Clips overflowing content and hides scrollbars',
+      'Shrinks font-size to fit',
+      'Adds horizontal and vertical scrollbars'
+    ],
+    correctIndex: 1,
+    explanation: 'overflow: hidden clips any content extending beyond the padding box without scrollbars.'
+  },
+  {
+    id: 'css-38',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'In Flexbox with default row direction, which property aligns flex items vertically along the CROSS axis?',
+    code: '.row {\n  display: flex;\n  ???: center;\n}',
+    options: ['justify-content', 'align-items', 'vertical-align', 'flex-center'],
+    correctIndex: 1,
+    explanation: 'align-items aligns flex items along the cross axis (vertical when flex-direction is row).'
+  },
+  {
+    id: 'css-39',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'In Flexbox and CSS Grid, which property adds spacing strictly BETWEEN items without outer margins?',
+    code: '',
+    options: ['item-margin', 'inner-space', 'gap', 'gutter'],
+    correctIndex: 2,
+    explanation: 'The gap property (row-gap / column-gap) sets spacing exclusively between flex or grid items.'
+  },
+  {
+    id: 'css-40',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'Which position value acts like relative until scrolling reaches a threshold (e.g., top: 0), then sticks in place?',
+    code: '',
+    options: ['fixed', 'static', 'sticky', 'pinned'],
+    correctIndex: 2,
+    explanation: 'position: sticky toggles between relative and fixed behavior based on scroll position.'
+  },
+  {
+    id: 'css-41',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'What does max-width: 100%; on an <img> tag prevent?',
+    code: 'img {\n  max-width: 100%;\n  height: auto;\n}',
+    options: [
+      'Prevents the image from loading lazily',
+      'Prevents the image from overflowing wider than its parent container',
+      'Stretches tiny images up to 100vw',
+      'Crops the image into a square'
+    ],
+    correctIndex: 1,
+    explanation: 'max-width: 100% keeps images responsive so they shrink inside smaller containers without stretching past natural size.'
+  },
+  {
+    id: 'css-42',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'Which object-fit value fills the entire container while preserving aspect ratio (cropping edges if needed)?',
+    code: '',
+    options: ['contain', 'cover', 'fill', 'scale-down'],
+    correctIndex: 1,
+    explanation: 'object-fit: cover fills the box completely without distorting aspect ratio, clipping overflow.'
+  },
+  {
+    id: 'css-43',
+    subjectId: 'css',
+    difficulty: 'Easy',
+    question: 'What does the universal selector * match in CSS?',
+    code: '* {\n  box-sizing: border-box;\n}',
+    options: [
+      'Only <div> and <span> tags',
+      'Only root <html> and <body>',
+      'Every element in the document',
+      'Only elements without a class'
+    ],
+    correctIndex: 2,
+    explanation: 'The * selector matches elements of any type.'
+  },
+  {
+    id: 'css-44',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'What does transform: translateY(-10px); do to an element?',
+    code: '',
+    options: [
+      'Rotates the element by -10 degrees',
+      'Shifts the element 10px upward visually without disturbing surrounding layout',
+      'Shrinks the height by 10px',
+      'Moves the element 10px to the left'
+    ],
+    correctIndex: 1,
+    explanation: 'Negative Y translation moves an element upward visually while keeping its original layout box intact.'
+  },
+  {
+    id: 'css-45',
+    subjectId: 'css',
+    difficulty: 'Medium',
+    question: 'Which pseudo-class applies styles when a form input or button receives keyboard/click focus?',
+    code: '',
+    options: [':hover', ':focus', ':selected', ':target'],
+    correctIndex: 1,
+    explanation: ':focus matches an element when it has received focus via click or Tab key.'
+  },
+  {
+    id: 'css-46',
+    subjectId: 'css',
+    difficulty: 'Hard',
+    question: 'Which elements does li:nth-child(odd) select?',
+    code: '',
+    options: [
+      'The 1st, 3rd, 5th, ... <li> sibling elements',
+      'The 2nd, 4th, 6th, ... <li> sibling elements',
+      'Only the first <li> element',
+      'Every <li> whose text length is odd'
+    ],
+    correctIndex: 0,
+    explanation: 'nth-child(odd) matches 1-based positions 1, 3, 5, etc.'
+  },
+  {
+    id: 'css-47',
+    subjectId: 'css',
+    difficulty: 'Hard',
+    question: 'Which CSS declaration keeps text on a single line without wrapping?',
+    code: '',
+    options: ['text-wrap: off;', 'line-break: none;', 'white-space: nowrap;', 'word-wrap: single;'],
+    correctIndex: 2,
+    explanation: 'white-space: nowrap suppresses automatic line wrapping at spaces.'
+  },
+  {
+    id: 'css-48',
+    subjectId: 'css',
+    difficulty: 'Hard',
+    question: 'What does width: calc(100% - 40px); allow you to do in CSS?',
+    code: '',
+    options: [
+      'Calculate JavaScript variables inside CSS',
+      'Perform math operations mixing different CSS units like % and px',
+      'Automatically center an element',
+      'Apply styles only on screens wider than 40px'
+    ],
+    correctIndex: 1,
+    explanation: 'calc() evaluates mathematical expressions combining relative and fixed units at layout time.'
+  },
+  {
+    id: 'css-49',
+    subjectId: 'css',
+    difficulty: 'Hard',
+    question: 'What does pointer-events: none; do on an element?',
+    code: '',
+    options: [
+      'Hides the element from screen',
+      'Makes the element ignore mouse clicks/hovers so clicks pass through to elements underneath',
+      'Disables keyboard Tab navigation',
+      'Changes the mouse cursor to default'
+    ],
+    correctIndex: 1,
+    explanation: 'pointer-events: none prevents the element from being the target of pointer/mouse events.'
+  },
+  {
+    id: 'css-50',
+    subjectId: 'css',
+    difficulty: 'Hard',
+    question: 'Which CSS at-rule defines intermediate steps for a keyframed CSS animation?',
+    code: '',
+    options: ['@animate', '@transition', '@keyframes', '@frames'],
+    correctIndex: 2,
+    explanation: '@keyframes defines animation stages (from/to or 0%..100%) referenced by animation-name.'
   },
 
   // ===================== JAVASCRIPT (30) =====================
@@ -1079,6 +1529,221 @@ const SEED_QUESTIONS = [
     correctIndex: 1,
     explanation: 'const prevents reassigning the variable binding (user = ...), not mutating properties inside the object.'
   },
+  {
+    id: 'js-31',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'Which array method removes and returns the LAST element of an array?',
+    code: '',
+    options: ['shift()', 'pop()', 'remove()', 'slice()'],
+    correctIndex: 1,
+    explanation: 'pop() removes the final element of an array and returns it; shift() removes the first element.'
+  },
+  {
+    id: 'js-32',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'Which property returns the number of elements in an array or characters in a string?',
+    code: '',
+    options: ['.size', '.count', '.length', '.len()'],
+    correctIndex: 2,
+    explanation: '.length is a property on arrays and strings returning item/character count.'
+  },
+  {
+    id: 'js-33',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'How do you write a single-line comment in JavaScript?',
+    code: '',
+    options: ['// comment', '# comment', '<!-- comment -->', '-- comment'],
+    correctIndex: 0,
+    explanation: '// begins a single-line comment in JavaScript; /* ... */ creates multi-line comments.'
+  },
+  {
+    id: 'js-34',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'What does Math.floor(4.9) return in JavaScript?',
+    code: 'console.log(Math.floor(4.9));',
+    options: ['5', '4', '4.9', 'NaN'],
+    correctIndex: 1,
+    explanation: 'Math.floor() rounds a number down to the largest integer less than or equal to it (4).'
+  },
+  {
+    id: 'js-35',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'Which array method combines all array items into a single string separated by a chosen delimiter?',
+    code: '["HTML", "CSS", "JS"].???(", ") // "HTML, CSS, JS"',
+    options: ['concat()', 'merge()', 'join()', 'split()'],
+    correctIndex: 2,
+    explanation: 'array.join(separator) joins all elements into a string; string.split() does the reverse.'
+  },
+  {
+    id: 'js-36',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'Which DOM property inserts plain text into an element WITHOUT parsing HTML tags (safe against XSS)?',
+    code: '',
+    options: ['innerHTML', 'textContent', 'outerHTML', 'insertHTML'],
+    correctIndex: 1,
+    explanation: 'textContent treats angle brackets as literal text, unlike innerHTML which parses HTML.'
+  },
+  {
+    id: 'js-37',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'What does "code".toUpperCase() return?',
+    code: '',
+    options: ['"Code"', '"code"', '"CODE"', 'Error'],
+    correctIndex: 2,
+    explanation: 'toUpperCase() returns a new string with all letters converted to uppercase.'
+  },
+  {
+    id: 'js-38',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'Which array method returns the FIRST element that satisfies a callback test (or undefined)?',
+    code: 'const users = [{id: 1}, {id: 2}];\nconst u = users.???(x => x.id === 2);',
+    options: ['filter()', 'find()', 'indexOf()', 'map()'],
+    correctIndex: 1,
+    explanation: 'find() stops at and returns the first matching element, whereas filter() returns an array.'
+  },
+  {
+    id: 'js-39',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'What does Object.keys({ a: 1, b: 2 }) return?',
+    code: '',
+    options: ['[1, 2]', '["a", "b"]', '[["a", 1], ["b", 2]]', '2'],
+    correctIndex: 1,
+    explanation: 'Object.keys(obj) returns an array of the object\'s own enumerable property names.'
+  },
+  {
+    id: 'js-40',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'Which expression returns true if AT LEAST ONE element in nums = [1, 3, 5, 8] is even?',
+    code: 'const nums = [1, 3, 5, 8];',
+    options: [
+      'nums.every(n => n % 2 === 0)',
+      'nums.any(n => n % 2 === 0)',
+      'nums.some(n => n % 2 === 0)',
+      'nums.includes(n => n % 2 === 0)'
+    ],
+    correctIndex: 2,
+    explanation: 'Array.prototype.some() returns true if at least one item passes the predicate; every() requires all.'
+  },
+  {
+    id: 'js-41',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'What do Array.isArray([1, 2]) and typeof [1, 2] evaluate to respectively?',
+    code: 'console.log(Array.isArray([1, 2]), typeof [1, 2]);',
+    options: ['true "array"', 'true "object"', 'false "object"', 'true "list"'],
+    correctIndex: 1,
+    explanation: 'typeof returns "object" for arrays, so Array.isArray() is the reliable way to check for arrays.'
+  },
+  {
+    id: 'js-42',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'Which method serializes a JavaScript object into a JSON string?',
+    code: '',
+    options: ['JSON.stringify()', 'JSON.parse()', 'JSON.serialize()', 'Object.toJSON()'],
+    correctIndex: 0,
+    explanation: 'JSON.stringify(value) converts a JS object/array into a JSON-formatted string.'
+  },
+  {
+    id: 'js-43',
+    subjectId: 'js',
+    difficulty: 'Hard',
+    question: 'What is printed by Number("42px") and parseInt("42px", 10)?',
+    code: 'console.log(Number("42px"), parseInt("42px", 10));',
+    options: ['42 42', 'NaN NaN', 'NaN 42', '42 NaN'],
+    correctIndex: 2,
+    explanation: 'Number() fails on non-numeric trailing chars (NaN), whereas parseInt() parses leading digits (42).'
+  },
+  {
+    id: 'js-44',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'What is s.size after running const s = new Set([1, 1, 2, 3, 3]);?',
+    code: 'const s = new Set([1, 1, 2, 3, 3]);\nconsole.log(s.size);',
+    options: ['5', '3', '4', 'undefined'],
+    correctIndex: 1,
+    explanation: 'A JavaScript Set stores unique values only, so duplicates are deduplicated leaving 3 items.'
+  },
+  {
+    id: 'js-45',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'Which loop iterates directly over the VALUES of an array or string?',
+    code: '',
+    options: ['for...in', 'for...of', 'for...each', 'for...values'],
+    correctIndex: 1,
+    explanation: 'for...of iterates over iterable values; for...in iterates over enumerable property keys.'
+  },
+  {
+    id: 'js-46',
+    subjectId: 'js',
+    difficulty: 'Hard',
+    question: 'What is logged by this array destructuring with a skipped slot?',
+    code: 'const [a, , b] = [10, 20, 30];\nconsole.log(a, b);',
+    options: ['10 20', '20 30', '10 30', 'SyntaxError'],
+    correctIndex: 2,
+    explanation: 'The empty slot between commas skips index 1 (20), assigning a=10 and b=30.'
+  },
+  {
+    id: 'js-47',
+    subjectId: 'js',
+    difficulty: 'Medium',
+    question: 'Why do developers wrap await fetch(...) inside a try / catch block in an async function?',
+    code: '',
+    options: [
+      'To make fetch() run synchronously',
+      'To handle network failures or rejected Promises gracefully',
+      'Because await cannot execute outside try',
+      'To automatically parse JSON'
+    ],
+    correctIndex: 1,
+    explanation: 'When an awaited Promise rejects (e.g. network offline), try/catch catches the error cleanly.'
+  },
+  {
+    id: 'js-48',
+    subjectId: 'js',
+    difficulty: 'Easy',
+    question: 'What does "a-b-c".split("-") return?',
+    code: '',
+    options: ['"abc"', '["a", "b", "c"]', '["a-b-c"]', '["a", "-", "b", "-", "c"]'],
+    correctIndex: 1,
+    explanation: 'split("-") splits the string at every "-" separator into an array of substrings.'
+  },
+  {
+    id: 'js-49',
+    subjectId: 'js',
+    difficulty: 'Hard',
+    question: 'What does calling event.stopPropagation() inside a click handler do?',
+    code: '',
+    options: [
+      'Prevents links from opening',
+      'Cancels form submission',
+      'Stops the event from bubbling up to parent elements',
+      'Refreshes the page'
+    ],
+    correctIndex: 2,
+    explanation: 'stopPropagation() stops the event from propagating to ancestor elements in the DOM tree.'
+  },
+  {
+    id: 'js-50',
+    subjectId: 'js',
+    difficulty: 'Hard',
+    question: 'What does console.log([] == false) output in JavaScript?',
+    code: 'console.log([] == false);',
+    options: ['true', 'false', 'TypeError', 'undefined'],
+    correctIndex: 0,
+    explanation: 'With loose == equality, [] coerces to "" which coerces to 0, and false coerces to 0, yielding true.'
+  },
 
   // ===================== PYTHON (30) =====================
   {
@@ -1410,6 +2075,241 @@ const SEED_QUESTIONS = [
     options: ['int', 'str', 'bool', 'Depends on what the user typed'],
     correctIndex: 1,
     explanation: 'input() always returns a string (str); you must convert it with int() or float() for math.'
+  },
+  {
+    id: 'py-31',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'Which keyword immediately exits a for or while loop in Python?',
+    code: '',
+    options: ['exit', 'break', 'stop', 'return-loop'],
+    correctIndex: 1,
+    explanation: 'break terminates the innermost loop immediately.'
+  },
+  {
+    id: 'py-32',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'Which keyword skips the remaining statements in the current loop iteration and jumps to the next one?',
+    code: '',
+    options: ['skip', 'pass', 'continue', 'next'],
+    correctIndex: 2,
+    explanation: 'continue skips to the next loop iteration; pass is a no-op placeholder.'
+  },
+  {
+    id: 'py-33',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'What is the output of print("python".upper())?',
+    code: '',
+    options: ['Python', 'PYTHON', 'python', 'Error'],
+    correctIndex: 1,
+    explanation: 'str.upper() returns an uppercase copy of the string.'
+  },
+  {
+    id: 'py-34',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'How do you check whether key "age" exists in a Python dictionary d?',
+    code: 'd = {"name": "Raj", "age": 20}',
+    options: ['"age" in d', 'd.has("age")', 'd.contains("age")', 'exists(d, "age")'],
+    correctIndex: 0,
+    explanation: 'The in operator checks for key membership in a dictionary in O(1) average time.'
+  },
+  {
+    id: 'py-35',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'What does print(17 % 5) output?',
+    code: 'print(17 % 5)',
+    options: ['3', '3.4', '2', '5'],
+    correctIndex: 2,
+    explanation: 'The modulo operator (%) returns the remainder of 17 divided by 5, which is 2.'
+  },
+  {
+    id: 'py-36',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'Which built-in Python type represents True and False?',
+    code: '',
+    options: ['boolean', 'bool', 'bit', 'flag'],
+    correctIndex: 1,
+    explanation: 'Python\'s boolean type is named bool (True / False).'
+  },
+  {
+    id: 'py-37',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'What is the output of ",".join(["a", "b", "c"])?',
+    code: 'print(",".join(["a", "b", "c"]))',
+    options: ['["a,b,c"]', 'a,b,c', ',abc', 'Error'],
+    correctIndex: 1,
+    explanation: 'sep.join(iterable) joins string items using sep as the delimiter between them.'
+  },
+  {
+    id: 'py-38',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'Which list method removes and returns the last item (or item at a specified index)?',
+    code: '',
+    options: ['remove()', 'delete()', 'pop()', 'drop()'],
+    correctIndex: 2,
+    explanation: 'list.pop() removes and returns the last element (or element at index i).'
+  },
+  {
+    id: 'py-39',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'What does abs(-15) return in Python?',
+    code: '',
+    options: ['-15', '15', '0', 'TypeError'],
+    correctIndex: 1,
+    explanation: 'abs() returns the absolute (non-negative) value of a number.'
+  },
+  {
+    id: 'py-40',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'What does print(bool([]), bool([0])) output?',
+    code: 'print(bool([]), bool([0]))',
+    options: ['False False', 'True True', 'False True', 'True False'],
+    correctIndex: 2,
+    explanation: 'An empty list [] is falsy (False), while a non-empty list [0] (length 1) is truthy (True).'
+  },
+  {
+    id: 'py-41',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'What does dict.items() provide when iterating over a dictionary d?',
+    code: 'for k, v in d.items():\n    print(k, v)',
+    options: [
+      'Only dictionary keys',
+      'Pairs of (key, value) tuples',
+      'Only dictionary values',
+      'List indices'
+    ],
+    correctIndex: 1,
+    explanation: 'd.items() returns a view of (key, value) tuple pairs.'
+  },
+  {
+    id: 'py-42',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'What is the output of list(zip([1, 2], ["a", "b"]))?',
+    code: 'print(list(zip([1, 2], ["a", "b"])))',
+    options: [
+      '[(1, "a"), (2, "b")]',
+      '[1, 2, "a", "b"]',
+      '{1: "a", 2: "b"}',
+      '[[1, 2], ["a", "b"]]'
+    ],
+    correctIndex: 0,
+    explanation: 'zip() pairs corresponding elements from each iterable into tuples.'
+  },
+  {
+    id: 'py-43',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'What is the key difference between nums.sort() and sorted(nums)?',
+    code: '',
+    options: [
+      'sort() sorts descending; sorted() sorts ascending',
+      'sort() modifies the list in-place and returns None; sorted() returns a new sorted list',
+      'sorted() only works on strings',
+      'There is no difference'
+    ],
+    correctIndex: 1,
+    explanation: 'list.sort() mutates the original list and returns None; sorted() leaves the original untouched and returns a new list.'
+  },
+  {
+    id: 'py-44',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'In try / except / finally, when does the finally block execute?',
+    code: '',
+    options: [
+      'Only when no exception occurred',
+      'Only when an exception was caught',
+      'Always, whether an exception occurred or not',
+      'Never if return is used inside try'
+    ],
+    correctIndex: 2,
+    explanation: 'finally always runs before exiting the try statement, making it ideal for cleanup.'
+  },
+  {
+    id: 'py-45',
+    subjectId: 'python',
+    difficulty: 'Hard',
+    question: 'What does print(round(3.5), round(2.5)) output in Python 3?',
+    code: 'print(round(3.5), round(2.5))',
+    options: ['4 3', '4 2', '3 2', '3 3'],
+    correctIndex: 1,
+    explanation: 'Python 3 round() uses round-half-to-even (banker\'s rounding): 3.5 -> 4, 2.5 -> 2.'
+  },
+  {
+    id: 'py-46',
+    subjectId: 'python',
+    difficulty: 'Hard',
+    question: 'What does **kwargs collect in def greet(**kwargs):?',
+    code: '',
+    options: [
+      'Positional arguments as a list',
+      'Arbitrary keyword arguments as a dictionary',
+      'Only integer arguments',
+      'Unpacked tuples'
+    ],
+    correctIndex: 1,
+    explanation: '**kwargs captures extra keyword=value arguments into a dict.'
+  },
+  {
+    id: 'py-47',
+    subjectId: 'python',
+    difficulty: 'Hard',
+    question: 'Which expression is a valid dictionary comprehension mapping 0..2 to their doubles?',
+    code: '',
+    options: [
+      '[x: x * 2 for x in range(3)]',
+      '(x: x * 2 for x in range(3))',
+      '{x: x * 2 for x in range(3)}',
+      'dict(x -> x * 2 for x in range(3))'
+    ],
+    correctIndex: 2,
+    explanation: '{key: value for item in iterable} is Python\'s dictionary comprehension syntax.'
+  },
+  {
+    id: 'py-48',
+    subjectId: 'python',
+    difficulty: 'Easy',
+    question: 'What does s = "CodeAura"; print(s.startswith("Code"), s.endswith("ra")) output?',
+    code: 's = "CodeAura"\nprint(s.startswith("Code"), s.endswith("ra"))',
+    options: ['True True', 'True False', 'False True', 'False False'],
+    correctIndex: 0,
+    explanation: '"CodeAura" begins with "Code" and ends with "ra", so both return True.'
+  },
+  {
+    id: 'py-49',
+    subjectId: 'python',
+    difficulty: 'Medium',
+    question: 'What does any([False, 0, "", 5]) return in Python?',
+    code: 'print(any([False, 0, "", 5]))',
+    options: ['False', 'True', '5', 'None'],
+    correctIndex: 1,
+    explanation: 'any() returns True if at least one element is truthy (5 is truthy).'
+  },
+  {
+    id: 'py-50',
+    subjectId: 'python',
+    difficulty: 'Hard',
+    question: 'Inside a Python subclass, what does super().__init__() do?',
+    code: '',
+    options: [
+      'Deletes the parent class',
+      'Creates a static global instance',
+      'Calls the parent class\'s __init__ initializer',
+      'Makes all methods private'
+    ],
+    correctIndex: 2,
+    explanation: 'super() returns a proxy object allowing the subclass to invoke inherited methods like __init__ on its parent.'
   }
 ];
 
