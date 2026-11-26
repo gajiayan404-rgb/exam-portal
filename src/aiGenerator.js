@@ -146,6 +146,85 @@ async function callChatCompletion({ baseUrl, apiKey, model, messages, useJsonFor
   return content;
 }
 
+async function generateSingleBatch({
+  baseUrl,
+  apiKey,
+  model,
+  subjectId,
+  subjectName,
+  topic = '',
+  count = 5,
+  difficulty = 'Mixed',
+  avoidQuestions = [],
+  timeoutMs = 55000
+}) {
+  const chosenModel = String(model || 'deepseek-v4.1-flash').trim();
+  const safeCount = Math.max(1, Math.min(20, Number(count) || 5));
+  const diffPrompt = difficulty === 'Mixed'
+    ? 'Mix of Easy, Medium, and Hard difficulty'
+    : `${difficulty} difficulty`;
+
+  const systemPrompt = [
+    'You are an expert computer science instructor writing multiple-choice exam questions.',
+    'Return ONLY a valid JSON object with the exact shape:',
+    '{"questions":[{"question":"...","code":"optional code snippet or empty string","options":["opt A","opt B","opt C","opt D"],"correctIndex":0,"difficulty":"Easy|Medium|Hard","explanation":"brief explanation"}]}',
+    'Rules:',
+    '- Exactly 4 distinct options per question.',
+    '- correctIndex must be an integer 0, 1, 2, or 3.',
+    '- Verify technical accuracy carefully before returning.',
+    '- Do NOT wrap JSON in markdown or include extra commentary.'
+  ].join('\n');
+
+  const avoidSnippet = avoidQuestions.length > 0
+    ? ` Do NOT repeat these already-generated questions: ${avoidQuestions.slice(-15).map((q) => `"${q.slice(0, 70)}"`).join(', ')}.`
+    : '';
+
+  const userPrompt = [
+    `Generate ${safeCount} unique MCQ questions for the subject: ${subjectName || subjectId}.`,
+    topic ? `Focus on topic: ${topic}.` : 'Cover practical core concepts and code output questions.',
+    `Difficulty: ${diffPrompt}.`,
+    avoidSnippet,
+    `Return exact JSON with ${safeCount} items in "questions".`
+  ].filter(Boolean).join(' ');
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt }
+  ];
+
+  let rawContent;
+  try {
+    rawContent = await callChatCompletion({
+      baseUrl,
+      apiKey,
+      model: chosenModel,
+      messages,
+      useJsonFormat: true,
+      timeoutMs
+    });
+  } catch (err) {
+    // Some OpenAI-compatible models reject response_format; retry once without it on 400
+    if (err.statusCode === 400 && /response_format/i.test(err.message)) {
+      rawContent = await callChatCompletion({
+        baseUrl,
+        apiKey,
+        model: chosenModel,
+        messages,
+        useJsonFormat: false,
+        timeoutMs
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  const parsed = extractJsonPayload(rawContent);
+  return validateAndNormalizeMcqs(parsed, {
+    subjectId,
+    defaultDifficulty: difficulty === 'Mixed' ? 'Medium' : difficulty
+  });
+}
+
 async function generateMcqsWithAi({
   baseUrl,
   apiKey,
@@ -163,71 +242,79 @@ async function generateMcqsWithAi({
     err.statusCode = 400;
     throw err;
   }
-  const chosenModel = String(model || 'deepseek-v4.1-flash').trim();
-  const safeCount = Math.max(1, Math.min(30, Number(count) || 5));
-  const diffPrompt = difficulty === 'Mixed'
-    ? 'Mix of Easy, Medium, and Hard difficulty'
-    : `${difficulty} difficulty`;
 
-  const systemPrompt = [
-    'You are an expert computer science instructor writing multiple-choice exam questions.',
-    'Return ONLY a valid JSON object with the exact shape:',
-    '{"questions":[{"question":"...","code":"optional code snippet or empty string","options":["opt A","opt B","opt C","opt D"],"correctIndex":0,"difficulty":"Easy|Medium|Hard","explanation":"brief explanation"}]}',
-    'Rules:',
-    '- Exactly 4 distinct options per question.',
-    '- correctIndex must be an integer 0, 1, 2, or 3.',
-    '- Verify technical accuracy carefully before returning.',
-    '- Do NOT wrap JSON in markdown or include extra commentary.'
-  ].join('\n');
+  const targetCount = Math.max(1, Math.min(50, Number(count) || 5));
+  const collected = [];
+  const seenQuestions = new Set();
 
-  const userPrompt = [
-    `Generate ${safeCount} unique MCQ questions for the subject: ${subjectName || subjectId}.`,
-    topic ? `Focus on topic: ${topic}.` : 'Cover practical core concepts and code output questions.',
-    `Difficulty: ${diffPrompt}.`,
-    `Return exact JSON with ${safeCount} items in "questions".`
-  ].join(' ');
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ];
-
-  let rawContent;
-  try {
-    rawContent = await callChatCompletion({
+  let remaining = targetCount;
+  while (remaining > 0) {
+    const batchSize = Math.min(15, remaining);
+    const batch = await generateSingleBatch({
       baseUrl: base,
       apiKey,
-      model: chosenModel,
-      messages,
-      useJsonFormat: true,
+      model,
+      subjectId,
+      subjectName,
+      topic,
+      count: batchSize,
+      difficulty,
+      avoidQuestions: [...seenQuestions],
       timeoutMs
     });
-  } catch (err) {
-    // Some OpenAI-compatible models reject response_format; retry once without it on 400
-    if (err.statusCode === 400 && /response_format/i.test(err.message)) {
-      rawContent = await callChatCompletion({
-        baseUrl: base,
-        apiKey,
-        model: chosenModel,
-        messages,
-        useJsonFormat: false,
-        timeoutMs
-      });
-    } else {
-      throw err;
+
+    let addedThisRound = 0;
+    for (const q of batch) {
+      const key = q.question.toLowerCase();
+      if (!seenQuestions.has(key) && collected.length < targetCount) {
+        seenQuestions.add(key);
+        collected.push(q);
+        addedThisRound += 1;
+      }
     }
+    remaining -= batchSize;
+    if (addedThisRound === 0) break;
   }
 
-  const parsed = extractJsonPayload(rawContent);
-  const validated = validateAndNormalizeMcqs(parsed, {
-    subjectId,
-    defaultDifficulty: difficulty === 'Mixed' ? 'Medium' : difficulty
-  });
-
-  if (validated.length === 0) {
+  if (collected.length === 0) {
     throw new Error('AI returned no valid 4-option MCQs. Please try again.');
   }
-  return validated;
+  return collected;
+}
+
+async function generateMixedSubjectMcqs({
+  baseUrl,
+  apiKey,
+  model,
+  subjects,
+  topic = '',
+  count = 10,
+  difficulty = 'Mixed',
+  timeoutMs = 55000
+}) {
+  const targetTotal = Math.max(1, Math.min(50, Number(count) || 10));
+  const activeSubjects = subjects.slice(0, targetTotal);
+  const perSubject = Math.floor(targetTotal / activeSubjects.length);
+  let extra = targetTotal % activeSubjects.length;
+
+  const jobs = activeSubjects.map((subj) => {
+    const take = perSubject + (extra > 0 ? 1 : 0);
+    if (extra > 0) extra -= 1;
+    return generateMcqsWithAi({
+      baseUrl,
+      apiKey,
+      model,
+      subjectId: subj.id,
+      subjectName: subj.fullName || subj.name,
+      topic,
+      count: take,
+      difficulty,
+      timeoutMs
+    });
+  });
+
+  const results = await Promise.all(jobs);
+  return results.flat();
 }
 
 module.exports = {
@@ -235,5 +322,6 @@ module.exports = {
   extractJsonPayload,
   validateAndNormalizeMcqs,
   fetchAvailableModels,
-  generateMcqsWithAi
+  generateMcqsWithAi,
+  generateMixedSubjectMcqs
 };

@@ -113,6 +113,53 @@
         </div>
       </div>
 
+      <!-- DIRECT AI EXAM GENERATOR (FRESH QUESTIONS WITHOUT OLD BANK) -->
+      <div class="card card-compact stack-sm" id="direct-ai-builder-card"
+        style="background:linear-gradient(135deg,#eef2ff 0%,#f5f3ff 100%);border:1.5px solid var(--primary-border);">
+        <div class="flex-between">
+          <div>
+            <strong style="font-size:15.5px;color:#312e81;">✨ Direct AI Question Generator (Fresh Questions — Not From Old Bank)</strong>
+            <div class="text-xs text-muted">Calls Cent-AI directly to create brand-new MCQs and loads ONLY those fresh questions into your exam.</div>
+          </div>
+          <span class="badge badge-primary" id="direct-ai-model-badge">AI Ready</span>
+        </div>
+        <form id="direct-ai-form" class="stack-sm">
+          <div class="form-grid" style="grid-template-columns:1.1fr 0.9fr 0.7fr 1.4fr auto;align-items:end;">
+            <div class="form-group">
+              <label for="direct-ai-subj">Subject</label>
+              <select id="direct-ai-subj" class="select"></select>
+            </div>
+            <div class="form-group">
+              <label for="direct-ai-diff">Difficulty</label>
+              <select id="direct-ai-diff" class="select">
+                <option value="Mixed" selected>Mixed</option>
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="direct-ai-count">MCQs (1–50)</label>
+              <input id="direct-ai-count" type="number" min="1" max="50" value="10" class="input" required />
+            </div>
+            <div class="form-group">
+              <label for="direct-ai-topic">Topic / Syllabus (Optional)</label>
+              <input id="direct-ai-topic" type="text" class="input" placeholder="e.g. Loops, Flexbox, Promises, OOP..." />
+            </div>
+            <button type="submit" id="direct-ai-generate-btn" class="btn btn-primary" style="height:40px;">
+              ✨ Generate AI Questions
+            </button>
+          </div>
+          <div class="flex-between">
+            <label class="checkbox-row text-xs">
+              <input type="checkbox" id="direct-ai-replace-check" checked />
+              <span>Use <strong>ONLY</strong> these fresh AI questions (replace previous selection &amp; show only generated MCQs)</span>
+            </label>
+            <div id="direct-ai-status" class="text-xs hidden" style="font-weight:700;color:var(--primary);"></div>
+          </div>
+        </form>
+      </div>
+
       <div class="builder-layout">
         <!-- LEFT: MCQ SELECTOR BANK -->
         <div class="card stack-md">

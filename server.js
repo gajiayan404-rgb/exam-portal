@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const { URL } = require('node:url');
 const { ExamStore } = require('./src/store');
 const { parseEmailList, sendSmtpMail, buildResultEmail } = require('./src/mailer');
-const { fetchAvailableModels, generateMcqsWithAi } = require('./src/aiGenerator');
+const { fetchAvailableModels, generateMcqsWithAi, generateMixedSubjectMcqs } = require('./src/aiGenerator');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -450,21 +450,38 @@ async function handleApi(req, res, url) {
         const model = String(body.model || saved.model || 'deepseek-v4.1-flash').trim();
 
         const subjectId = String(body.subjectId || '').trim();
-        const subject = store.listSubjects().find((s) => s.id === subjectId);
-        if (!subject) {
-          return sendJson(res, 400, { error: 'Please choose a valid subject.' });
-        }
+        const allSubjects = store.listSubjects();
+        const count = Math.max(1, Math.min(50, Number(body.count) || 10));
+        const topic = String(body.topic || '').trim();
+        const difficulty = String(body.difficulty || 'Mixed').trim();
 
-        const generated = await generateMcqsWithAi({
-          baseUrl,
-          apiKey,
-          model,
-          subjectId,
-          subjectName: subject.fullName || subject.name,
-          topic: String(body.topic || '').trim(),
-          count: Number(body.count) || 5,
-          difficulty: String(body.difficulty || 'Mixed').trim()
-        });
+        let generated;
+        if (subjectId === 'mixed' || subjectId === 'all') {
+          generated = await generateMixedSubjectMcqs({
+            baseUrl,
+            apiKey,
+            model,
+            subjects: allSubjects,
+            topic,
+            count,
+            difficulty
+          });
+        } else {
+          const subject = allSubjects.find((s) => s.id === subjectId);
+          if (!subject) {
+            return sendJson(res, 400, { error: 'Please choose a valid subject.' });
+          }
+          generated = await generateMcqsWithAi({
+            baseUrl,
+            apiKey,
+            model,
+            subjectId,
+            subjectName: subject.fullName || subject.name,
+            topic,
+            count,
+            difficulty
+          });
+        }
 
         const toSave = generated.map((q) => ({ ...q, isAiGenerated: true }));
         const added = store.bulkAddQuestions(toSave);

@@ -221,6 +221,14 @@
     document.getElementById('set-teacher').value = state.info?.teacherName || 'Sir';
     populateEmailSettings();
     populateAiSettings();
+
+    const directAiSubj = document.getElementById('direct-ai-subj');
+    if (directAiSubj) {
+      const prevDirect = directAiSubj.value || 'mixed';
+      directAiSubj.innerHTML = `<option value="mixed">Mixed (All Subjects)</option>` +
+        state.subjects.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
+      directAiSubj.value = prevDirect;
+    }
   }
 
   function populateAiSettings() {
@@ -233,12 +241,21 @@
       : 'Paste API key...';
     document.getElementById('ai-key-status').textContent = ai.hasApiKey ? '✓ Saved' : '';
     const badge = document.getElementById('ai-status-badge');
+    const directBadge = document.getElementById('direct-ai-model-badge');
     if (ai.hasApiKey && ai.baseUrl) {
       badge.className = 'badge badge-success';
       badge.textContent = 'Connected';
+      if (directBadge) {
+        directBadge.className = 'badge badge-success';
+        directBadge.textContent = `✨ Live AI: ${ai.model || 'deepseek-v4.1-flash'}`;
+      }
     } else {
       badge.className = 'badge badge-neutral';
       badge.textContent = 'Needs API Key';
+      if (directBadge) {
+        directBadge.className = 'badge badge-warning';
+        directBadge.textContent = 'Configure API Key in Settings';
+      }
     }
   }
 
@@ -1038,10 +1055,11 @@
     }
 
     const currentFilterSubj = document.getElementById('builder-subj-filter')?.value;
-    const defaultSubj = currentFilterSubj && currentFilterSubj !== 'all' ? currentFilterSubj : (state.subjects[0]?.id || 'html');
-    const subjOpts = state.subjects.map((s) =>
-      `<option value="${escapeHtml(s.id)}" ${s.id === defaultSubj ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
-    ).join('');
+    const defaultSubj = currentFilterSubj && currentFilterSubj !== 'all' ? currentFilterSubj : 'mixed';
+    const subjOpts = `<option value="mixed" ${defaultSubj === 'mixed' ? 'selected' : ''}>Mixed (All Subjects)</option>` +
+      state.subjects.map((s) =>
+        `<option value="${escapeHtml(s.id)}" ${s.id === defaultSubj ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
+      ).join('');
 
     openModal(`
       <div class="flex-between mb-2">
@@ -1067,8 +1085,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="ai-gen-count">Number of MCQs (1–30)</label>
-            <input id="ai-gen-count" type="number" min="1" max="30" value="10" class="input" required />
+            <label for="ai-gen-count">Number of MCQs (1–50)</label>
+            <input id="ai-gen-count" type="number" min="1" max="50" value="10" class="input" required />
           </div>
           <div class="form-group">
             <label for="ai-gen-model">Model</label>
@@ -1098,7 +1116,7 @@
       e.preventDefault();
       const submitBtn = document.getElementById('ai-gen-submit-btn');
       const statusEl = document.getElementById('ai-gen-status');
-      const countVal = Math.max(1, Math.min(30, Number(document.getElementById('ai-gen-count').value) || 10));
+      const countVal = Math.max(1, Math.min(50, Number(document.getElementById('ai-gen-count').value) || 10));
 
       submitBtn.disabled = true;
       submitBtn.textContent = `Generating ${countVal} MCQs...`;
@@ -1144,6 +1162,79 @@
 
   document.getElementById('builder-ai-gen-btn').addEventListener('click', () => openAiGeneratorModal(true));
   document.getElementById('open-ai-gen-btn').addEventListener('click', () => openAiGeneratorModal(false));
+
+  document.getElementById('direct-ai-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ai = state.settings?.ai || {};
+    if (!ai.hasApiKey) {
+      showToast('Please save your AI API Key in Settings first.', 'error');
+      switchTab('settings');
+      return;
+    }
+
+    const subjId = document.getElementById('direct-ai-subj').value;
+    const diff = document.getElementById('direct-ai-diff').value;
+    const countVal = Math.max(1, Math.min(50, Number(document.getElementById('direct-ai-count').value) || 10));
+    const topic = document.getElementById('direct-ai-topic').value.trim();
+    const replaceMode = document.getElementById('direct-ai-replace-check').checked;
+
+    const btn = document.getElementById('direct-ai-generate-btn');
+    const statusEl = document.getElementById('direct-ai-status');
+    btn.disabled = true;
+    btn.textContent = `⏳ Generating ${countVal}...`;
+    statusEl.classList.remove('hidden');
+    statusEl.style.color = 'var(--primary)';
+    statusEl.textContent = `Calling ${ai.model || 'AI'} for ${countVal} fresh MCQ${countVal === 1 ? '' : 's'}...`;
+
+    try {
+      const res = await apiFetch('/api/teacher/ai/generate', {
+        method: 'POST',
+        auth: true,
+        body: {
+          subjectId: subjId,
+          difficulty: diff,
+          count: countVal,
+          topic
+        }
+      });
+
+      if (replaceMode) {
+        state.selectedQuestionIds.clear();
+      }
+      for (const q of (res.added || [])) {
+        state.selectedQuestionIds.add(q.id);
+      }
+
+      const titleInput = document.getElementById('exam-title-input');
+      if (!titleInput.value.trim()) {
+        const subjLabel = subjId === 'mixed'
+          ? 'Mixed Programming'
+          : (state.subjects.find((s) => s.id === subjId)?.name || subjId);
+        const topicSuffix = topic ? ` (${topic})` : '';
+        titleInput.value = `AI ${subjLabel}${topicSuffix} Exam`;
+      }
+
+      document.getElementById('builder-subj-filter').value = 'all';
+      document.getElementById('builder-diff-filter').value = 'all';
+      document.getElementById('builder-search-filter').value = '';
+      if (replaceMode) {
+        document.getElementById('builder-selected-only-check').checked = true;
+      }
+
+      await loadBootstrap();
+      saveBuilderDraft();
+      statusEl.style.color = 'var(--success)';
+      statusEl.textContent = `✓ ${res.addedCount} fresh AI MCQs ready! Click "Save & Push to Student Portal".`;
+      showToast(`✨ Generated ${res.addedCount} fresh AI MCQs directly into your exam!`, 'success');
+    } catch (err) {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = `✕ ${err.message}`;
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '✨ Generate AI Questions';
+    }
+  });
 
   document.getElementById('exam-builder-form').addEventListener('submit', async (e) => {
     e.preventDefault();
