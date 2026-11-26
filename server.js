@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { URL } = require('node:url');
 const { ExamStore } = require('./src/store');
 const { parseEmailList, sendSmtpMail, buildResultEmail } = require('./src/mailer');
+const { fetchAvailableModels, generateMcqsWithAi } = require('./src/aiGenerator');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -430,6 +431,48 @@ async function handleApi(req, res, url) {
           timeoutMs: 10000
         });
         return sendJson(res, 200, { ok: true, recipients });
+      }
+
+      if (method === 'POST' && pathname === '/api/teacher/ai/models') {
+        const body = await readJsonBody(req);
+        const saved = store.getRawAiConfig();
+        const baseUrl = String(body.baseUrl || saved.baseUrl || '').trim();
+        const apiKey = String(body.apiKey || saved.apiKey || '').trim();
+        const models = await fetchAvailableModels({ baseUrl, apiKey });
+        return sendJson(res, 200, { models });
+      }
+
+      if (method === 'POST' && pathname === '/api/teacher/ai/generate') {
+        const body = await readJsonBody(req);
+        const saved = store.getRawAiConfig();
+        const baseUrl = String(body.baseUrl || saved.baseUrl || '').trim();
+        const apiKey = String(body.apiKey || saved.apiKey || '').trim();
+        const model = String(body.model || saved.model || 'deepseek-v4.1-flash').trim();
+
+        const subjectId = String(body.subjectId || '').trim();
+        const subject = store.listSubjects().find((s) => s.id === subjectId);
+        if (!subject) {
+          return sendJson(res, 400, { error: 'Please choose a valid subject.' });
+        }
+
+        const generated = await generateMcqsWithAi({
+          baseUrl,
+          apiKey,
+          model,
+          subjectId,
+          subjectName: subject.fullName || subject.name,
+          topic: String(body.topic || '').trim(),
+          count: Number(body.count) || 5,
+          difficulty: String(body.difficulty || 'Mixed').trim()
+        });
+
+        const toSave = generated.map((q) => ({ ...q, isAiGenerated: true }));
+        const added = store.bulkAddQuestions(toSave);
+        return sendJson(res, 201, {
+          addedCount: added.length,
+          added,
+          subjects: store.listSubjects()
+        });
       }
 
       if (method === 'GET' && pathname === '/api/teacher/subjects') {

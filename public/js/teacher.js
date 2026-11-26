@@ -220,6 +220,26 @@
     document.getElementById('set-institute').value = state.info?.instituteName || '';
     document.getElementById('set-teacher').value = state.info?.teacherName || 'Sir';
     populateEmailSettings();
+    populateAiSettings();
+  }
+
+  function populateAiSettings() {
+    const ai = state.settings?.ai || {};
+    document.getElementById('set-ai-base-url').value = ai.baseUrl || 'https://api.cent-ai.dev/v1';
+    document.getElementById('set-ai-model').value = ai.model || 'deepseek-v4.1-flash';
+    document.getElementById('set-ai-api-key').value = '';
+    document.getElementById('set-ai-api-key').placeholder = ai.hasApiKey
+      ? 'Saved (leave blank to keep existing)'
+      : 'Paste API key...';
+    document.getElementById('ai-key-status').textContent = ai.hasApiKey ? '✓ Saved' : '';
+    const badge = document.getElementById('ai-status-badge');
+    if (ai.hasApiKey && ai.baseUrl) {
+      badge.className = 'badge badge-success';
+      badge.textContent = 'Connected';
+    } else {
+      badge.className = 'badge badge-neutral';
+      badge.textContent = 'Needs API Key';
+    }
   }
 
   function populateEmailSettings() {
@@ -646,7 +666,7 @@
               <span class="badge badge-neutral">#${idx + 1}</span>
               ${renderSubjectBadge(subj || { name: q.subjectId })}
               ${renderDifficultyBadge(q.difficulty)}
-              ${q.isCustom ? '<span class="badge badge-primary">Custom</span>' : ''}
+              ${q.isAiGenerated ? '<span class="badge badge-primary">✨ AI</span>' : q.isCustom ? '<span class="badge badge-primary">Custom</span>' : ''}
             </div>
             <div style="font-weight:600;font-size:14.5px;">${formatInlineCodeHtml(q.question)}</div>
             ${q.code ? `<pre class="code-block" style="margin:8px 0;">${escapeHtml(q.code)}</pre>` : ''}
@@ -1008,6 +1028,122 @@
   document.getElementById('builder-quick-add-mcq-btn').addEventListener('click', () => {
     openQuestionModal(null, true);
   });
+
+  function openAiGeneratorModal(autoSelectInBuilder = false) {
+    const ai = state.settings?.ai || {};
+    if (!ai.hasApiKey) {
+      showToast('Please save your AI API Key in Settings first.', 'error');
+      switchTab('settings');
+      return;
+    }
+
+    const currentFilterSubj = document.getElementById('builder-subj-filter')?.value;
+    const defaultSubj = currentFilterSubj && currentFilterSubj !== 'all' ? currentFilterSubj : (state.subjects[0]?.id || 'html');
+    const subjOpts = state.subjects.map((s) =>
+      `<option value="${escapeHtml(s.id)}" ${s.id === defaultSubj ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
+    ).join('');
+
+    openModal(`
+      <div class="flex-between mb-2">
+        <h2 class="card-title">✨ AI Generate MCQs</h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
+      </div>
+      <p class="text-sm text-muted" style="margin-top:0;">
+        Automatically generate verified programming MCQs using <strong>${escapeHtml(ai.model || 'deepseek-v4.1-flash')}</strong> and add them directly to your bank.
+      </p>
+      <form id="ai-gen-modal-form" class="stack-md">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group">
+            <label for="ai-gen-subj">Subject</label>
+            <select id="ai-gen-subj" class="select">${subjOpts}</select>
+          </div>
+          <div class="form-group">
+            <label for="ai-gen-diff">Difficulty</label>
+            <select id="ai-gen-diff" class="select">
+              <option value="Mixed" selected>Mixed (Easy / Med / Hard)</option>
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="ai-gen-count">Number of MCQs (1–30)</label>
+            <input id="ai-gen-count" type="number" min="1" max="30" value="10" class="input" required />
+          </div>
+          <div class="form-group">
+            <label for="ai-gen-model">Model</label>
+            <input id="ai-gen-model" type="text" list="ai-model-options" class="input" value="${escapeHtml(ai.model || 'deepseek-v4.1-flash')}" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="ai-gen-topic">Specific Topic (Optional)</label>
+          <input id="ai-gen-topic" type="text" class="input" placeholder="e.g. Flexbox & Grid, Async/Await, Python OOP, SQL Joins..." />
+        </div>
+        <label class="checkbox-row" style="background:var(--surface-muted);padding:10px 12px;border-radius:10px;">
+          <input type="checkbox" id="ai-gen-autoselect" ${autoSelectInBuilder ? 'checked' : ''} />
+          <span>Automatically select generated MCQs into the current Exam Builder</span>
+        </label>
+        <div id="ai-gen-status" class="text-sm hidden" style="color:var(--primary);font-weight:600;"></div>
+        <div class="flex-row" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="ai-gen-submit-btn">✨ Generate MCQs</button>
+        </div>
+      </form>
+    `);
+
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+
+    document.getElementById('ai-gen-modal-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById('ai-gen-submit-btn');
+      const statusEl = document.getElementById('ai-gen-status');
+      const countVal = Math.max(1, Math.min(30, Number(document.getElementById('ai-gen-count').value) || 10));
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = `Generating ${countVal} MCQs...`;
+      statusEl.classList.remove('hidden');
+      statusEl.textContent = '⏳ Calling AI model and validating 4-option MCQs...';
+
+      try {
+        const res = await apiFetch('/api/teacher/ai/generate', {
+          method: 'POST',
+          auth: true,
+          body: {
+            subjectId: document.getElementById('ai-gen-subj').value,
+            difficulty: document.getElementById('ai-gen-diff').value,
+            count: countVal,
+            model: document.getElementById('ai-gen-model').value.trim(),
+            topic: document.getElementById('ai-gen-topic').value.trim()
+          }
+        });
+
+        const autoSelect = document.getElementById('ai-gen-autoselect').checked;
+        if (autoSelect && Array.isArray(res.added)) {
+          for (const q of res.added) {
+            state.selectedQuestionIds.add(q.id);
+          }
+          saveBuilderDraft();
+        }
+        closeModal();
+        await loadBootstrap();
+        showToast(
+          autoSelect
+            ? `✨ Generated ${res.addedCount} AI MCQs and selected them into your exam!`
+            : `✨ Generated & saved ${res.addedCount} AI MCQs to Question Bank!`,
+          'success'
+        );
+      } catch (err) {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = `✕ ${err.message}`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = '✨ Generate MCQs';
+      }
+    });
+  }
+
+  document.getElementById('builder-ai-gen-btn').addEventListener('click', () => openAiGeneratorModal(true));
+  document.getElementById('open-ai-gen-btn').addEventListener('click', () => openAiGeneratorModal(false));
 
   document.getElementById('exam-builder-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1824,6 +1960,77 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
     } finally {
       btn.disabled = false;
       btn.textContent = '✉️ Send Test Email';
+    }
+  });
+
+  function collectAiPayload() {
+    return {
+      enabled: true,
+      baseUrl: document.getElementById('set-ai-base-url').value.trim(),
+      apiKey: document.getElementById('set-ai-api-key').value.trim(),
+      model: document.getElementById('set-ai-model').value.trim()
+    };
+  }
+
+  document.getElementById('ai-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/api/teacher/settings', {
+        method: 'PUT',
+        auth: true,
+        body: { ai: collectAiPayload() }
+      });
+      state.settings = res.settings;
+      populateAiSettings();
+      showToast('AI settings saved!', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  async function loadModelsFromProvider(showSuccessToast = true) {
+    const payload = collectAiPayload();
+    const res = await apiFetch('/api/teacher/ai/models', {
+      method: 'POST',
+      auth: true,
+      body: { baseUrl: payload.baseUrl, apiKey: payload.apiKey }
+    });
+    const datalist = document.getElementById('ai-model-options');
+    datalist.innerHTML = (res.models || [])
+      .map((m) => `<option value="${escapeHtml(m.id)}">${m.free ? 'Free' : ''}</option>`)
+      .join('');
+    if (showSuccessToast) {
+      showToast(`Loaded ${(res.models || []).length} models from AI endpoint!`, 'success');
+    }
+    return res.models || [];
+  }
+
+  document.getElementById('fetch-ai-models-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('fetch-ai-models-btn');
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+      await loadModelsFromProvider(true);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '↻ Load';
+    }
+  });
+
+  document.getElementById('test-ai-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('test-ai-btn');
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+    try {
+      const models = await loadModelsFromProvider(false);
+      showToast(`AI API connected! ${models.length} models available.`, 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🧪 Verify AI Connection';
     }
   });
 

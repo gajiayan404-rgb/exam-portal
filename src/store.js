@@ -35,6 +35,12 @@ function createInitialStore() {
         sendToTeacher: true,
         sendToStudent: true,
         requireStudentEmail: false
+      },
+      ai: {
+        enabled: false,
+        baseUrl: 'https://api.cent-ai.dev/v1',
+        apiKey: '',
+        model: 'deepseek-v4.1-flash'
       }
     },
     subjects: DEFAULT_SUBJECTS.map((s) => ({ ...s })),
@@ -126,6 +132,13 @@ class ExamStore {
             sendToStudent: true,
             requireStudentEmail: false,
             ...((parsed.settings && parsed.settings.email) || {})
+          },
+          ai: {
+            enabled: false,
+            baseUrl: 'https://api.cent-ai.dev/v1',
+            apiKey: '',
+            model: 'deepseek-v4.1-flash',
+            ...((parsed.settings && parsed.settings.ai) || {})
           }
         },
         subjects: Array.isArray(parsed.subjects) && parsed.subjects.length > 0
@@ -186,6 +199,7 @@ class ExamStore {
   getTeacherSettings() {
     const s = this.data.settings;
     const e = s.email || {};
+    const a = s.ai || {};
     return {
       instituteName: s.instituteName,
       teacherName: s.teacherName,
@@ -202,6 +216,12 @@ class ExamStore {
         sendToTeacher: e.sendToTeacher !== false,
         sendToStudent: e.sendToStudent !== false,
         requireStudentEmail: Boolean(e.requireStudentEmail)
+      },
+      ai: {
+        enabled: Boolean(a.enabled && a.baseUrl && a.apiKey),
+        baseUrl: a.baseUrl || 'https://api.cent-ai.dev/v1',
+        model: a.model || 'deepseek-v4.1-flash',
+        hasApiKey: Boolean(a.apiKey)
       }
     };
   }
@@ -210,12 +230,16 @@ class ExamStore {
     return { ...(this.data.settings.email || {}) };
   }
 
+  getRawAiConfig() {
+    return { ...(this.data.settings.ai || {}) };
+  }
+
   // ---------- SETTINGS ----------
   verifyTeacherPin(pin) {
     return String(pin || '').trim() === String(this.data.settings.teacherPin);
   }
 
-  updateSettings({ instituteName, teacherName, currentPin, newPin, email }) {
+  updateSettings({ instituteName, teacherName, currentPin, newPin, email, ai }) {
     if (instituteName && String(instituteName).trim()) {
       this.data.settings.instituteName = String(instituteName).trim().slice(0, 80);
     }
@@ -258,6 +282,21 @@ class ExamStore {
         next.smtpPass = String(email.smtpPass).trim();
       }
       this.data.settings.email = next;
+    }
+    if (ai && typeof ai === 'object') {
+      const curAi = this.data.settings.ai || {};
+      const nextAi = {
+        ...curAi,
+        enabled: ai.enabled !== undefined ? Boolean(ai.enabled) : Boolean(curAi.enabled),
+        baseUrl: ai.baseUrl !== undefined ? String(ai.baseUrl).trim() : (curAi.baseUrl || 'https://api.cent-ai.dev/v1'),
+        model: ai.model !== undefined ? String(ai.model).trim() : (curAi.model || 'deepseek-v4.1-flash')
+      };
+      if (ai.clearApiKey) {
+        nextAi.apiKey = '';
+      } else if (ai.apiKey !== undefined && String(ai.apiKey).trim() !== '') {
+        nextAi.apiKey = String(ai.apiKey).trim();
+      }
+      this.data.settings.ai = nextAi;
     }
     this.save();
     return this.getTeacherSettings();
@@ -376,6 +415,7 @@ class ExamStore {
       correctIndex,
       explanation: String(payload.explanation || '').trim(),
       isCustom: true,
+      isAiGenerated: Boolean(payload.isAiGenerated),
       createdAt: new Date().toISOString()
     };
     this.data.questions.unshift(item);

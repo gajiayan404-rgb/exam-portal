@@ -107,6 +107,7 @@
         </div>
         <div class="flex-row">
           <button type="button" id="builder-reset-btn" class="btn btn-secondary btn-sm">+ Start Blank Exam</button>
+          <button type="button" id="builder-ai-gen-btn" class="btn btn-primary btn-sm">✨ AI Generate MCQs</button>
           <button type="button" id="builder-quick-add-mcq-btn" class="btn btn-soft-primary btn-sm">+ Quick Add Custom
             MCQ</button>
         </div>
@@ -326,6 +327,7 @@
             <p class="card-subtitle">Manage built-in &amp; custom MCQs. Use Add or Bulk Import to expand your bank.</p>
           </div>
           <div class="flex-row">
+            <button type="button" id="open-ai-gen-btn" class="btn btn-soft-primary">✨ AI Generate MCQs</button>
             <button type="button" id="open-bulk-import-btn" class="btn btn-secondary">📥 Bulk Import MCQs</button>
             <button type="button" id="open-add-mcq-btn" class="btn btn-primary">+ Add New MCQ</button>
           </div>
@@ -527,6 +529,51 @@
             <div class="flex-row">
               <button type="submit" class="btn btn-primary">Save Email Settings</button>
               <button type="button" id="test-email-btn" class="btn btn-secondary">✉️ Send Test Email</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card" style="grid-column: 1 / -1;">
+          <div class="card-header" style="margin-bottom:8px;">
+            <div>
+              <h2 class="card-title">✨ AI MCQ Generator Settings</h2>
+              <p class="card-subtitle">Connect your OpenAI-compatible AI provider to auto-generate programming MCQs with 1 click.</p>
+            </div>
+            <span class="badge badge-neutral" id="ai-status-badge">Not Configured</span>
+          </div>
+
+          <form id="ai-settings-form" class="stack-md">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="set-ai-base-url">API Base URL</label>
+                <input id="set-ai-base-url" type="url" class="input" placeholder="https://api.cent-ai.dev/v1" required />
+              </div>
+              <div class="form-group">
+                <label for="set-ai-api-key">
+                  API Key
+                  <span id="ai-key-status" class="text-xs text-muted"></span>
+                </label>
+                <input id="set-ai-api-key" type="password" class="input" placeholder="Paste API key (leave blank to keep saved)" autocomplete="new-password" />
+              </div>
+              <div class="form-group">
+                <label for="set-ai-model">Model ID</label>
+                <div class="flex-row" style="flex-wrap:nowrap;">
+                  <input id="set-ai-model" type="text" list="ai-model-options" class="input" placeholder="deepseek-v4.1-flash" required />
+                  <button type="button" id="fetch-ai-models-btn" class="btn btn-secondary btn-sm">↻ Load</button>
+                </div>
+                <datalist id="ai-model-options">
+                  <option value="deepseek-v4.1-flash"></option>
+                  <option value="gpt-6-luna"></option>
+                  <option value="qwen3.8-flash"></option>
+                  <option value="gemini-3.8-flash"></option>
+                  <option value="claude-haiku-5.5"></option>
+                </datalist>
+              </div>
+            </div>
+
+            <div class="flex-row">
+              <button type="submit" class="btn btn-primary">Save AI Settings</button>
+              <button type="button" id="test-ai-btn" class="btn btn-secondary">🧪 Verify AI Connection</button>
             </div>
           </form>
         </div>
