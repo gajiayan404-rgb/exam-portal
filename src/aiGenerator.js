@@ -101,12 +101,12 @@ async function fetchAvailableModels({ baseUrl, apiKey, timeoutMs = 15000 }) {
     }));
 }
 
-async function callChatCompletion({ baseUrl, apiKey, model, messages, useJsonFormat = true, timeoutMs = 45000 }) {
+async function callChatCompletion({ baseUrl, apiKey, model, messages, useJsonFormat = true, temperature = 0.82, timeoutMs = 45000 }) {
   const base = normalizeBaseUrl(baseUrl);
   const body = {
     model,
     messages,
-    temperature: 0.4
+    temperature
   };
   if (useJsonFormat) {
     body.response_format = { type: 'json_object' };
@@ -164,6 +164,15 @@ async function generateSingleBatch({
     ? 'Mix of Easy, Medium, and Hard difficulty'
     : `${difficulty} difficulty`;
 
+  const todayKey = new Date().toLocaleDateString('en-CA');
+  const lenses = [
+    'real-world debugging and code output tracing',
+    'edge cases, subtle syntax traps, and modern best practices',
+    'practical problem solving and conceptual understanding',
+    'performance, security, and clean architecture scenarios'
+  ];
+  const lensPick = lenses[Math.floor(Math.random() * lenses.length)];
+
   const systemPrompt = [
     'You are an expert computer science instructor writing multiple-choice exam questions.',
     'Return ONLY a valid JSON object with the exact shape:',
@@ -171,17 +180,18 @@ async function generateSingleBatch({
     'Rules:',
     '- Exactly 4 distinct options per question.',
     '- correctIndex must be an integer 0, 1, 2, or 3.',
+    '- Generate completely fresh, original questions distinct from prior sets.',
     '- Verify technical accuracy carefully before returning.',
     '- Do NOT wrap JSON in markdown or include extra commentary.'
   ].join('\n');
 
   const avoidSnippet = avoidQuestions.length > 0
-    ? ` Do NOT repeat these already-generated questions: ${avoidQuestions.slice(-15).map((q) => `"${q.slice(0, 70)}"`).join(', ')}.`
+    ? ` Do NOT repeat or closely paraphrase these existing questions: ${avoidQuestions.slice(-30).map((q) => `"${String(q).slice(0, 75)}"`).join(', ')}.`
     : '';
 
   const userPrompt = [
-    `Generate ${safeCount} unique MCQ questions for the subject: ${subjectName || subjectId}.`,
-    topic ? `Focus on topic: ${topic}.` : 'Cover practical core concepts and code output questions.',
+    `Date: ${todayKey}. Generate ${safeCount} unique fresh MCQ questions for the subject: ${subjectName || subjectId}.`,
+    topic ? `Focus on topic: ${topic}.` : `Emphasize ${lensPick}.`,
     `Difficulty: ${diffPrompt}.`,
     avoidSnippet,
     `Return exact JSON with ${safeCount} items in "questions".`
@@ -234,6 +244,7 @@ async function generateMcqsWithAi({
   topic = '',
   count = 5,
   difficulty = 'Mixed',
+  existingQuestions = [],
   timeoutMs = 55000
 }) {
   const base = normalizeBaseUrl(baseUrl);
@@ -245,10 +256,18 @@ async function generateMcqsWithAi({
 
   const targetCount = Math.max(1, Math.min(50, Number(count) || 5));
   const collected = [];
-  const seenQuestions = new Set();
+  const existingSet = new Set(
+    (Array.isArray(existingQuestions) ? existingQuestions : [])
+      .map((q) => String(q || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const seenQuestions = new Set(existingSet);
 
   let remaining = targetCount;
-  while (remaining > 0) {
+  let attempts = 0;
+  const maxAttempts = Math.ceil(targetCount / 15) + 2;
+  while (remaining > 0 && attempts < maxAttempts) {
+    attempts += 1;
     const batchSize = Math.min(15, remaining);
     const batch = await generateSingleBatch({
       baseUrl: base,
@@ -265,14 +284,14 @@ async function generateMcqsWithAi({
 
     let addedThisRound = 0;
     for (const q of batch) {
-      const key = q.question.toLowerCase();
+      const key = q.question.trim().toLowerCase();
       if (!seenQuestions.has(key) && collected.length < targetCount) {
         seenQuestions.add(key);
         collected.push(q);
         addedThisRound += 1;
       }
     }
-    remaining -= batchSize;
+    remaining = targetCount - collected.length;
     if (addedThisRound === 0) break;
   }
 
@@ -290,6 +309,7 @@ async function generateMixedSubjectMcqs({
   topic = '',
   count = 10,
   difficulty = 'Mixed',
+  existingBySubject = {},
   timeoutMs = 55000
 }) {
   const targetTotal = Math.max(1, Math.min(50, Number(count) || 10));
@@ -309,6 +329,7 @@ async function generateMixedSubjectMcqs({
       topic,
       count: take,
       difficulty,
+      existingQuestions: existingBySubject[subj.id] || [],
       timeoutMs
     });
   });

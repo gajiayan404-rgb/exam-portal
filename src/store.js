@@ -77,6 +77,39 @@ function createInitialStore() {
   };
 }
 
+function getLocalDateKey(date = new Date()) {
+  try {
+    return date.toLocaleDateString('en-CA');
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+function createSeededRng(seedStr) {
+  let counter = 0;
+  let block = Buffer.alloc(0);
+  let offset = 0;
+
+  return function nextFloat() {
+    if (offset + 4 > block.length) {
+      block = crypto.createHash('sha256').update(`${seedStr}|${counter++}`).digest();
+      offset = 0;
+    }
+    const val = block.readUInt32BE(offset);
+    offset += 4;
+    return val / 0x100000000;
+  };
+}
+
+function seededShuffle(items, rng) {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 class ExamStore {
   constructor(storePath = STORE_PATH) {
     this.storePath = storePath;
@@ -533,12 +566,19 @@ class ExamStore {
     }
 
     const submissionsCount = this.data.submissions.filter((s) => s.examId === exam.id).length;
+    const rawPerStu = Number(exam.questionsPerStudent) || 0;
+    const serveCount = rawPerStu > 0 && rawPerStu < validQuestions.length ? rawPerStu : validQuestions.length;
 
     return {
       ...exam,
       questionIds: validQuestions.map((q) => q.id),
-      questionCount: validQuestions.length,
-      totalMarks: validQuestions.length * (Number(exam.marksPerQuestion) || 1),
+      poolCount: validQuestions.length,
+      questionCount: serveCount,
+      questionsPerStudent: rawPerStu,
+      shuffleQuestions: exam.shuffleQuestions !== false,
+      shuffleOptions: exam.shuffleOptions !== undefined ? Boolean(exam.shuffleOptions) : (exam.shuffleQuestions !== false),
+      rotateDailyPool: exam.rotateDailyPool !== false,
+      totalMarks: Number((serveCount * (Number(exam.marksPerQuestion) || 1)).toFixed(2)),
       subjectBreakdown: Object.values(subjectBreakdown),
       submissionsCount
     };
@@ -580,6 +620,13 @@ class ExamStore {
     const blockCopyPaste = payload.blockCopyPaste !== undefined ? Boolean(payload.blockCopyPaste) : true;
     const rawSpeed = Number(payload.speedModeSeconds);
     const speedModeSeconds = Number.isFinite(rawSpeed) && rawSpeed > 0 ? Math.max(5, Math.min(300, Math.round(rawSpeed))) : 0;
+    const shuffleQuestions = payload.shuffleQuestions !== undefined ? Boolean(payload.shuffleQuestions) : true;
+    const shuffleOptions = payload.shuffleOptions !== undefined ? Boolean(payload.shuffleOptions) : shuffleQuestions;
+    const rotateDailyPool = payload.rotateDailyPool !== undefined ? Boolean(payload.rotateDailyPool) : true;
+    const rawPerStu = Number(payload.questionsPerStudent);
+    const questionsPerStudent = Number.isFinite(rawPerStu) && rawPerStu > 0
+      ? Math.max(1, Math.min(200, Math.round(rawPerStu)))
+      : 0;
     const now = new Date().toISOString();
 
     if (payload.id) {
@@ -597,7 +644,10 @@ class ExamStore {
         marksPerQuestion,
         negativeMarking,
         passPercentage,
-        shuffleQuestions: Boolean(payload.shuffleQuestions),
+        shuffleQuestions,
+        shuffleOptions,
+        rotateDailyPool,
+        questionsPerStudent,
         showResultsImmediately: payload.showResultsImmediately !== false,
         allowRetake: payload.allowRetake !== false,
         proctorTabSwitch,
@@ -622,7 +672,10 @@ class ExamStore {
       marksPerQuestion,
       negativeMarking,
       passPercentage,
-      shuffleQuestions: Boolean(payload.shuffleQuestions),
+      shuffleQuestions,
+      shuffleOptions,
+      rotateDailyPool,
+      questionsPerStudent,
       showResultsImmediately: payload.showResultsImmediately !== false,
       allowRetake: payload.allowRetake !== false,
       proctorTabSwitch,
@@ -693,7 +746,104 @@ class ExamStore {
       });
   }
 
-  getExamForStudent(examId, rollNumber) {
+  _selectQuestionsForStudent(exam, rollNumber, todayKey) {
+    const qMap = new Map(this.data.questions.map((q) => [q.id, q]));
+    const selectedQs = exam.questionIds.map((id) => qMap.get(id)).filter(Boolean);
+    const rawPerStu = Number(exam.questionsPerStudent) || 0;
+    const serveCount = rawPerStu > 0 && rawPerStu < selectedQs.length ? rawPerStu : selectedQs.length;
+    const rollSeed = String(rollNumber || '').trim().toLowerCase() || crypto.randomBytes(4).toString('hex');
+    const studentRng = createSeededRng(`${exam.id}|${todayKey}|${rollSeed}`);
+
+    // Compute proportional target count per subject based on selectedQs
+    const subjCounts = new Map();
+    for (const q of selectedQs) {
+      subjCounts.set(q.subjectId, (subjCounts.get(q.subjectId) || 0) + 1);
+    }
+
+    const allocs = [];
+    let allocated = 0;
+    const subjEntries = [...subjCounts.entries()];
+    subjEntries.forEach(([sid, origCount], idx) => {
+      let take = idx === subjEntries.length - 1
+        ? serveCount - allocated
+        : Math.max(1, Math.round((origCount / selectedQs.length) * serveCount));
+      take = Math.max(0, Math.min(serveCount - allocated, take));
+      allocated += take;
+      allocs.push([sid, take]);
+    });
+
+    const dayMs = Date.parse(`${todayKey}T00:00:00Z`);
+    const dayIndex = Number.isFinite(dayMs) ? Math.floor(dayMs / 86400000) : 0;
+    const useExplicitSubset = rawPerStu > 0 && rawPerStu < selectedQs.length;
+    const useDailyBankRotation = !useExplicitSubset && exam.rotateDailyPool !== false;
+
+    const chosen = [];
+    const chosenIds = new Set();
+
+    for (const [sid, take] of allocs) {
+      if (take <= 0) continue;
+      const explicitPool = selectedQs.filter((q) => q.subjectId === sid);
+      let pool = explicitPool;
+
+      if (useDailyBankRotation) {
+        const bankForSubj = this.data.questions.filter((q) => q.subjectId === sid);
+        if (bankForSubj.length > take) {
+          pool = bankForSubj;
+        }
+      }
+
+      if (pool.length <= take) {
+        for (const q of pool) {
+          if (!chosenIds.has(q.id)) {
+            chosenIds.add(q.id);
+            chosen.push(q);
+          }
+        }
+        continue;
+      }
+
+      // Build daily rotated window so different days serve different cohorts,
+      // while always keeping today's freshly generated AI MCQs prioritized in today's cohort.
+      const baseOrdered = seededShuffle(pool, createSeededRng(`${exam.id}|base|${sid}`));
+      const n = baseOrdered.length;
+      const startOffset = ((Math.abs(dayIndex) * take) % n + n) % n;
+      const rotated = [...baseOrdered.slice(startOffset), ...baseOrdered.slice(0, startOffset)];
+      const cohortSize = Math.min(n, Math.max(take * 2, Math.ceil(n * 0.6)));
+      const cohortSlice = rotated.slice(0, cohortSize);
+
+      const todaysAi = rotated.filter((q) => q.isAiGenerated && String(q.createdAt || '').startsWith(todayKey));
+      const cohortMap = new Map();
+      for (const q of [...todaysAi, ...cohortSlice]) {
+        if (!cohortMap.has(q.id) && cohortMap.size < cohortSize) {
+          cohortMap.set(q.id, q);
+        }
+      }
+
+      const studentOrder = seededShuffle([...cohortMap.values()], createSeededRng(`${exam.id}|${todayKey}|${sid}|${rollSeed}`));
+      let pickedHere = 0;
+      for (const q of studentOrder) {
+        if (pickedHere >= take) break;
+        if (!chosenIds.has(q.id)) {
+          chosenIds.add(q.id);
+          chosen.push(q);
+          pickedHere += 1;
+        }
+      }
+    }
+
+    const shouldShuffleQuestions = exam.shuffleQuestions !== false;
+    const shouldShuffleOptions = exam.shuffleOptions !== undefined
+      ? Boolean(exam.shuffleOptions)
+      : shouldShuffleQuestions;
+
+    const finalQs = shouldShuffleQuestions ? seededShuffle(chosen, studentRng) : chosen;
+    return finalQs.map((q) => ({
+      q,
+      perm: shouldShuffleOptions ? seededShuffle([0, 1, 2, 3], studentRng) : [0, 1, 2, 3]
+    }));
+  }
+
+  getExamForStudent(examId, rollNumber, { dateKey } = {}) {
     const exam = this.data.exams.find((e) => e.id === examId && e.isLive);
     if (!exam) {
       const err = new Error('This exam is no longer live or does not exist.');
@@ -713,34 +863,27 @@ class ExamStore {
       }
     }
 
-    const qMap = new Map(this.data.questions.map((q) => [q.id, q]));
+    const todayKey = dateKey || getLocalDateKey();
     const subjMap = new Map(this.data.subjects.map((s) => [s.id, s]));
+    const servedList = this._selectQuestionsForStudent(exam, rollNumber, todayKey);
 
-    let questions = exam.questionIds
-      .map((id) => qMap.get(id))
-      .filter(Boolean)
-      .map((q) => {
-        const subj = subjMap.get(q.subjectId);
-        // Strip correctIndex and explanation so students cannot cheat via DevTools!
-        return {
-          id: q.id,
-          subjectId: q.subjectId,
-          subjectName: subj ? subj.name : q.subjectId,
-          subjectColor: subj ? subj.color : '#4f46e5',
-          subjectBgColor: subj ? subj.bgColor : '#eef2ff',
-          difficulty: q.difficulty,
-          question: q.question,
-          code: q.code || '',
-          options: q.options
-        };
-      });
+    const questions = servedList.map(({ q, perm }) => {
+      const subj = subjMap.get(q.subjectId);
+      // Strip correctIndex and explanation so students cannot cheat via DevTools!
+      return {
+        id: q.id,
+        subjectId: q.subjectId,
+        subjectName: subj ? subj.name : q.subjectId,
+        subjectColor: subj ? subj.color : '#4f46e5',
+        subjectBgColor: subj ? subj.bgColor : '#eef2ff',
+        difficulty: q.difficulty,
+        question: q.question,
+        code: q.code || '',
+        options: perm.map((origIdx) => q.options[origIdx])
+      };
+    });
 
-    if (exam.shuffleQuestions) {
-      for (let i = questions.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [questions[i], questions[j]] = [questions[j], questions[i]];
-      }
-    }
+    const _paperSpec = servedList.map(({ q, perm }) => [q.id, perm]);
 
     return {
       id: exam.id,
@@ -755,13 +898,14 @@ class ExamStore {
       requireFullscreen: exam.requireFullscreen !== false,
       blockCopyPaste: exam.blockCopyPaste !== false,
       speedModeSeconds: Number(exam.speedModeSeconds) || 0,
-      totalMarks: questions.length * (Number(exam.marksPerQuestion) || 1),
+      totalMarks: Number((questions.length * (Number(exam.marksPerQuestion) || 1)).toFixed(2)),
       questionCount: questions.length,
-      questions
+      questions,
+      _paperSpec
     };
   }
 
-  submitStudentExam(examId, payload) {
+  submitStudentExam(examId, payload, { paperSpec = null } = {}) {
     const exam = this.data.exams.find((e) => e.id === examId);
     if (!exam) {
       const err = new Error('Exam not found.');
@@ -809,7 +953,27 @@ class ExamStore {
 
     const qMap = new Map(this.data.questions.map((q) => [q.id, q]));
     const subjMap = new Map(this.data.subjects.map((s) => [s.id, s]));
-    const examQuestions = exam.questionIds.map((id) => qMap.get(id)).filter(Boolean);
+
+    let servedEntries;
+    if (Array.isArray(paperSpec) && paperSpec.length > 0) {
+      servedEntries = paperSpec
+        .map((entry) => {
+          const qId = Array.isArray(entry) ? entry[0] : entry;
+          const rawPerm = Array.isArray(entry) && Array.isArray(entry[1]) ? entry[1] : [0, 1, 2, 3];
+          const q = qMap.get(qId);
+          if (!q) return null;
+          const validPerm = rawPerm.length === 4 && [0, 1, 2, 3].every((n) => rawPerm.includes(n))
+            ? rawPerm
+            : [0, 1, 2, 3];
+          return { q, perm: validPerm };
+        })
+        .filter(Boolean);
+    } else {
+      servedEntries = exam.questionIds
+        .map((id) => qMap.get(id))
+        .filter(Boolean)
+        .map((q) => ({ q, perm: [0, 1, 2, 3] }));
+    }
 
     const marksPerQ = Number(exam.marksPerQuestion) || 1;
     const negMark = Number(exam.negativeMarking) || 0;
@@ -822,7 +986,7 @@ class ExamStore {
     const subjectStats = {};
     const review = [];
 
-    for (const q of examQuestions) {
+    for (const { q, perm } of servedEntries) {
       const subj = subjMap.get(q.subjectId);
       const subjName = subj ? subj.name : q.subjectId;
       if (!subjectStats[q.subjectId]) {
@@ -842,6 +1006,9 @@ class ExamStore {
       stat.totalQuestions += 1;
       stat.maxMarks = Number((stat.maxMarks + marksPerQ).toFixed(2));
 
+      const presentedOptions = perm.map((origIdx) => q.options[origIdx]);
+      const presentedCorrectIndex = perm.indexOf(q.correctIndex);
+
       const rawChoice = answers[q.id];
       const selectedIndex =
         rawChoice === null || rawChoice === undefined || rawChoice === ''
@@ -855,7 +1022,7 @@ class ExamStore {
         skippedCount += 1;
         stat.skipped += 1;
         status = 'skipped';
-      } else if (selectedIndex === q.correctIndex) {
+      } else if (selectedIndex === presentedCorrectIndex) {
         correctCount += 1;
         stat.correct += 1;
         rawScore += marksPerQ;
@@ -877,16 +1044,16 @@ class ExamStore {
         subjectName: subjName,
         question: q.question,
         code: q.code || '',
-        options: q.options,
+        options: presentedOptions,
         selectedIndex,
-        correctIndex: q.correctIndex,
+        correctIndex: presentedCorrectIndex,
         explanation: q.explanation || '',
         status,
         marksAwarded
       });
     }
 
-    const totalMarks = Number((examQuestions.length * marksPerQ).toFixed(2));
+    const totalMarks = Number((servedEntries.length * marksPerQ).toFixed(2));
     const score = Number(Math.max(0, rawScore).toFixed(2));
     const percentage = totalMarks > 0 ? Number(((score / totalMarks) * 100).toFixed(1)) : 0;
     const passed = percentage >= (Number(exam.passPercentage) || 40);
@@ -913,7 +1080,7 @@ class ExamStore {
       rollNumber: rollNumber.slice(0, 40),
       batch: batch.slice(0, 40),
       studentEmail: studentEmail.slice(0, 120),
-      totalQuestions: examQuestions.length,
+      totalQuestions: servedEntries.length,
       correctCount,
       wrongCount,
       skippedCount,

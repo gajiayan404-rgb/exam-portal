@@ -351,15 +351,30 @@ async function handleApi(req, res, url) {
     if (method === 'GET' && studentExamMatch) {
       const examId = decodeURIComponent(studentExamMatch[1]);
       const roll = url.searchParams.get('roll') || '';
-      const exam = store.getExamForStudent(examId, roll);
-      return sendJson(res, 200, { exam });
+      const rawExam = store.getExamForStudent(examId, roll);
+      const { _paperSpec, ...exam } = rawExam;
+      const paperToken = signToken({
+        role: 'exam-paper',
+        examId: exam.id,
+        spec: _paperSpec,
+        exp: Date.now() + 24 * 60 * 60 * 1000
+      });
+      return sendJson(res, 200, { exam: { ...exam, paperToken } });
     }
 
     const studentSubmitMatch = pathname.match(/^\/api\/student\/exams\/([^/]+)\/submit$/);
     if (method === 'POST' && studentSubmitMatch) {
       const examId = decodeURIComponent(studentSubmitMatch[1]);
       const body = await readJsonBody(req);
-      const result = store.submitStudentExam(examId, body);
+      let paperSpec = null;
+      if (body.paperToken) {
+        const paperSession = verifyToken(body.paperToken);
+        if (!paperSession || paperSession.role !== 'exam-paper' || paperSession.examId !== examId) {
+          return sendJson(res, 401, { error: 'Exam session token expired or invalid. Please reload the exam.' });
+        }
+        paperSpec = paperSession.spec;
+      }
+      const result = store.submitStudentExam(examId, body, { paperSpec });
       const emailDelivery = await dispatchSubmissionEmail(result.id);
       result.emailDelivery = emailDelivery;
       result.pdfToken = signToken({
@@ -506,6 +521,10 @@ async function handleApi(req, res, url) {
 
         let generated;
         if (subjectId === 'mixed' || subjectId === 'all') {
+          const existingBySubject = {};
+          for (const s of allSubjects) {
+            existingBySubject[s.id] = store.listQuestions({ subjectId: s.id }).map((q) => q.question);
+          }
           generated = await generateMixedSubjectMcqs({
             baseUrl,
             apiKey,
@@ -513,13 +532,15 @@ async function handleApi(req, res, url) {
             subjects: allSubjects,
             topic,
             count,
-            difficulty
+            difficulty,
+            existingBySubject
           });
         } else {
           const subject = allSubjects.find((s) => s.id === subjectId);
           if (!subject) {
             return sendJson(res, 400, { error: 'Please choose a valid subject.' });
           }
+          const existingQuestions = store.listQuestions({ subjectId }).map((q) => q.question);
           generated = await generateMcqsWithAi({
             baseUrl,
             apiKey,
@@ -528,7 +549,8 @@ async function handleApi(req, res, url) {
             subjectName: subject.fullName || subject.name,
             topic,
             count,
-            difficulty
+            difficulty,
+            existingQuestions
           });
         }
 

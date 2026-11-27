@@ -334,6 +334,7 @@
         name: state.studentProfile.name,
         email: state.studentProfile.email,
         batch: state.studentProfile.batch,
+        paperExam: state.activeExam,
         examStartedAt: state.examStartedAt,
         currentIdx: state.currentIdx,
         answers: state.answers,
@@ -865,6 +866,7 @@
           rollNumber: state.studentProfile.rollNumber,
           studentEmail: state.studentProfile.email,
           batch: state.studentProfile.batch,
+          paperToken: state.activeExam.paperToken || '',
           answers: state.answers,
           timeTakenSeconds: elapsedSeconds,
           proctoring: {
@@ -1142,6 +1144,11 @@
         email: saved.email || '',
         batch: saved.batch || ''
       };
+      if (saved.paperExam && saved.paperExam.id === saved.examId && Array.isArray(saved.paperExam.questions)) {
+        beginExamSession(saved.paperExam, saved);
+        showToast('Resumed your locked exam session with original timer.', 'info');
+        return;
+      }
       const res = await apiFetch(
         `/api/student/exams/${encodeURIComponent(saved.examId)}?roll=${encodeURIComponent(saved.rollNumber)}`
       );

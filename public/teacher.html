@@ -304,6 +304,11 @@
                 <label for="exam-max-violations-input">Tab/App Switch Strikes (1=Instant Submit, 0=Warn)</label>
                 <input id="exam-max-violations-input" type="number" min="0" max="20" value="1" class="input" />
               </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label for="exam-per-student-input">MCQs per Student (0 = All selected • e.g. pick 50 &amp; serve 20 unique per student)</label>
+                <input id="exam-per-student-input" type="number" min="0" max="200" value="0" class="input"
+                  placeholder="0 = serve full count" />
+              </div>
             </div>
 
             <div class="stack-sm" style="background:var(--surface-muted);padding:12px;border-radius:10px;">
@@ -312,8 +317,12 @@
                 <span><strong>Publish LIVE on Student Portal</strong> immediately</span>
               </label>
               <label class="checkbox-row">
-                <input type="checkbox" id="exam-shuffle-check" />
-                <span>Shuffle question order per student</span>
+                <input type="checkbox" id="exam-shuffle-check" checked />
+                <span>Shuffle question order &amp; A/B/C/D options per student</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" id="exam-rotate-daily-check" checked />
+                <span>Different MCQs per student &amp; rotate fresh daily</span>
               </label>
               <label class="checkbox-row">
                 <input type="checkbox" id="exam-show-results-check" checked />

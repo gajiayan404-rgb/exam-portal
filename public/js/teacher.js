@@ -401,9 +401,10 @@
               </div>
               ${exam.description ? `<p class="text-muted text-sm" style="margin:6px 0 0;">${escapeHtml(exam.description)}</p>` : ''}
               <div class="flex-row mt-1">
-                <span class="badge badge-primary">${exam.questionCount} MCQs</span>
+                <span class="badge badge-primary">${exam.questionCount} MCQs${exam.poolCount && exam.poolCount > exam.questionCount ? ` (from ${exam.poolCount} pool)` : ''}</span>
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
                 <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
+                ${exam.rotateDailyPool !== false ? `<span class="badge badge-success">🔀 Unique / Daily Fresh</span>` : (exam.shuffleQuestions !== false ? `<span class="badge badge-neutral">🔀 Shuffled</span>` : '')}
                 ${exam.speedModeSeconds > 0 ? `<span class="badge badge-warning">⚡ ${exam.speedModeSeconds}s/Q</span>` : ''}
                 ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ ${exam.maxTabViolations === 1 ? 'Auto-Submit on Tab/App Switch' : exam.maxTabViolations > 1 ? `Proctored (${exam.maxTabViolations} strikes)` : 'Proctored (Warn)'}</span>` : ''}
                 <span class="badge badge-neutral">📝 ${exam.submissionsCount} Submissions</span>
@@ -518,8 +519,10 @@
       passPercentage: document.getElementById('exam-pass-input').value,
       speedModeSeconds: document.getElementById('exam-speed-input').value,
       maxTabViolations: document.getElementById('exam-max-violations-input').value,
+      questionsPerStudent: document.getElementById('exam-per-student-input').value,
       isLive: document.getElementById('exam-live-check').checked,
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
+      rotateDailyPool: document.getElementById('exam-rotate-daily-check').checked,
       showResultsImmediately: document.getElementById('exam-show-results-check').checked,
       allowRetake: document.getElementById('exam-retake-check').checked,
       proctorTabSwitch: document.getElementById('exam-proctor-tab-check').checked,
@@ -562,8 +565,10 @@
       if (d.passPercentage !== undefined) document.getElementById('exam-pass-input').value = d.passPercentage;
       if (d.speedModeSeconds !== undefined) document.getElementById('exam-speed-input').value = d.speedModeSeconds;
       if (d.maxTabViolations !== undefined) document.getElementById('exam-max-violations-input').value = d.maxTabViolations;
+      if (d.questionsPerStudent !== undefined) document.getElementById('exam-per-student-input').value = d.questionsPerStudent;
       if (d.isLive !== undefined) document.getElementById('exam-live-check').checked = Boolean(d.isLive);
       if (d.shuffleQuestions !== undefined) document.getElementById('exam-shuffle-check').checked = Boolean(d.shuffleQuestions);
+      if (d.rotateDailyPool !== undefined) document.getElementById('exam-rotate-daily-check').checked = Boolean(d.rotateDailyPool);
       if (d.showResultsImmediately !== undefined) document.getElementById('exam-show-results-check').checked = Boolean(d.showResultsImmediately);
       if (d.allowRetake !== undefined) document.getElementById('exam-retake-check').checked = Boolean(d.allowRetake);
       if (d.proctorTabSwitch !== undefined) document.getElementById('exam-proctor-tab-check').checked = Boolean(d.proctorTabSwitch);
@@ -578,18 +583,20 @@
 
   function updatePublishGuardrails() {
     const title = document.getElementById('exam-title-input').value.trim();
-    const count = state.selectedQuestionIds.size;
+    const poolCount = state.selectedQuestionIds.size;
+    const rawPerStu = Math.max(0, Number(document.getElementById('exam-per-student-input').value) || 0);
+    const effectiveCount = rawPerStu > 0 && rawPerStu < poolCount ? rawPerStu : poolCount;
     const marksPerQ = Number(document.getElementById('exam-marks-input').value) || 1;
-    const totalMarks = (count * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
+    const totalMarks = (effectiveCount * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
 
     const hintEl = document.getElementById('builder-validation-hint');
     const submitBtn = document.getElementById('save-exam-btn');
     const previewBtn = document.getElementById('preview-paper-btn');
-    previewBtn.disabled = count === 0;
+    previewBtn.disabled = poolCount === 0;
 
     const missing = [];
     if (!title) missing.push('Exam Title');
-    if (count === 0) missing.push('at least 1 MCQ');
+    if (poolCount === 0) missing.push('at least 1 MCQ');
 
     if (missing.length > 0) {
       submitBtn.disabled = true;
@@ -602,7 +609,9 @@
       hintEl.style.background = 'var(--success-soft)';
       hintEl.style.color = 'var(--success)';
       hintEl.style.borderColor = 'var(--success-border)';
-      hintEl.textContent = `✓ Ready to publish ${count} MCQ${count === 1 ? '' : 's'} (${totalMarks} Total Marks).`;
+      hintEl.textContent = effectiveCount < poolCount
+        ? `✓ Ready: serving ${effectiveCount} unique MCQs per student from ${poolCount} selected (${totalMarks} Marks).`
+        : `✓ Ready to publish ${poolCount} MCQ${poolCount === 1 ? '' : 's'} (${totalMarks} Total Marks).`;
     }
   }
 
@@ -724,10 +733,13 @@
     const selectedQuestions = [...state.selectedQuestionIds].map((id) => qMap.get(id)).filter(Boolean);
 
     const marksPerQ = Number(document.getElementById('exam-marks-input').value) || 1;
-    const totalMarks = (selectedQuestions.length * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
+    const rawPerStu = Math.max(0, Number(document.getElementById('exam-per-student-input').value) || 0);
+    const effectiveCount = rawPerStu > 0 && rawPerStu < selectedQuestions.length ? rawPerStu : selectedQuestions.length;
+    const totalMarks = (effectiveCount * marksPerQ).toFixed(marksPerQ % 1 === 0 ? 0 : 1);
 
-    document.getElementById('selected-total-badge').textContent =
-      `${selectedQuestions.length} MCQ${selectedQuestions.length === 1 ? '' : 's'} • ${totalMarks} Marks`;
+    document.getElementById('selected-total-badge').textContent = effectiveCount < selectedQuestions.length
+      ? `${effectiveCount}/${selectedQuestions.length} MCQs • ${totalMarks} Marks`
+      : `${selectedQuestions.length} MCQ${selectedQuestions.length === 1 ? '' : 's'} • ${totalMarks} Marks`;
 
     const counts = {};
     for (const q of selectedQuestions) {
@@ -784,8 +796,10 @@
     document.getElementById('exam-pass-input').value = '40';
     document.getElementById('exam-speed-input').value = '0';
     document.getElementById('exam-max-violations-input').value = '1';
+    document.getElementById('exam-per-student-input').value = '0';
     document.getElementById('exam-live-check').checked = true;
-    document.getElementById('exam-shuffle-check').checked = false;
+    document.getElementById('exam-shuffle-check').checked = true;
+    document.getElementById('exam-rotate-daily-check').checked = true;
     document.getElementById('exam-show-results-check').checked = true;
     document.getElementById('exam-retake-check').checked = true;
     document.getElementById('exam-proctor-tab-check').checked = true;
@@ -810,8 +824,10 @@
     document.getElementById('exam-pass-input').value = exam.passPercentage || 40;
     document.getElementById('exam-speed-input').value = exam.speedModeSeconds || 0;
     document.getElementById('exam-max-violations-input').value = exam.maxTabViolations ?? 1;
+    document.getElementById('exam-per-student-input').value = exam.questionsPerStudent || 0;
     document.getElementById('exam-live-check').checked = Boolean(exam.isLive);
-    document.getElementById('exam-shuffle-check').checked = Boolean(exam.shuffleQuestions);
+    document.getElementById('exam-shuffle-check').checked = exam.shuffleQuestions !== false;
+    document.getElementById('exam-rotate-daily-check').checked = exam.rotateDailyPool !== false;
     document.getElementById('exam-show-results-check').checked = exam.showResultsImmediately !== false;
     document.getElementById('exam-retake-check').checked = exam.allowRetake !== false;
     document.getElementById('exam-proctor-tab-check').checked = exam.proctorTabSwitch !== false;
@@ -831,6 +847,10 @@
     renderSelectedSummary();
     saveBuilderDraft();
   });
+  document.getElementById('exam-per-student-input').addEventListener('input', () => {
+    renderSelectedSummary();
+    saveBuilderDraft();
+  });
   document.getElementById('exam-title-input').addEventListener('input', () => {
     updatePublishGuardrails();
     saveBuilderDraft();
@@ -838,7 +858,7 @@
   [
     'exam-desc-input', 'exam-duration-input', 'exam-neg-input', 'exam-pass-input',
     'exam-speed-input', 'exam-max-violations-input', 'exam-live-check', 'exam-shuffle-check',
-    'exam-show-results-check', 'exam-retake-check', 'exam-proctor-tab-check',
+    'exam-rotate-daily-check', 'exam-show-results-check', 'exam-retake-check', 'exam-proctor-tab-check',
     'exam-block-copy-check', 'exam-fullscreen-check'
   ].forEach((id) => {
     const el = document.getElementById(id);
@@ -1254,8 +1274,11 @@
       passPercentage: Number(document.getElementById('exam-pass-input').value) || 40,
       speedModeSeconds: Math.max(0, Number(document.getElementById('exam-speed-input').value) || 0),
       maxTabViolations: Math.max(0, Number(document.getElementById('exam-max-violations-input').value) || 0),
+      questionsPerStudent: Math.max(0, Number(document.getElementById('exam-per-student-input').value) || 0),
       isLive: document.getElementById('exam-live-check').checked,
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
+      shuffleOptions: document.getElementById('exam-shuffle-check').checked,
+      rotateDailyPool: document.getElementById('exam-rotate-daily-check').checked,
       showResultsImmediately: document.getElementById('exam-show-results-check').checked,
       allowRetake: document.getElementById('exam-retake-check').checked,
       proctorTabSwitch: document.getElementById('exam-proctor-tab-check').checked,
