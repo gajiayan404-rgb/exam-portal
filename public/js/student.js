@@ -947,23 +947,37 @@
       `).join('');
     }
 
+    const instName = state.publicInfo?.instituteName || 'CodeAura Classroom';
+    const hasPdfToken = Boolean(result.pdfToken);
+
     container.innerHTML = `
-      <div class="card" style="text-align:center;border-top:6px solid ${result.passed ? 'var(--success)' : 'var(--danger)'};">
-        <span class="badge ${result.passed ? 'badge-success' : 'badge-danger'}" style="font-size:13px;padding:5px 14px;">
-          ${result.passed ? '🎉 PASSED' : '📚 NEEDS PRACTICE'}
-        </span>
-        <h1 style="margin:12px 0 4px;font-size:26px;">${escapeHtml(result.examTitle)}</h1>
+      <div class="card" style="text-align:center;border-top:6px solid ${result.passed ? '#0f766e' : 'var(--danger)'};">
+        <div class="result-letterhead">
+          <div class="result-brand-wrap">
+            <img src="/assets/codeaura-logo.jpg" alt="CodeAura Logo" class="result-brand-logo" />
+            <div>
+              <div class="text-xs" style="font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(instName)}</div>
+              <div style="font-size:18px;font-weight:800;color:var(--text);">Official Exam Score Report</div>
+              <div class="text-xs text-muted">Report ID: <span class="font-mono">${escapeHtml(result.id || '')}</span></div>
+            </div>
+          </div>
+          <span class="badge ${result.passed ? 'badge-success' : 'badge-danger'}" style="font-size:13px;padding:6px 14px;">
+            ${result.passed ? '🎉 PASSED' : '📚 NEEDS PRACTICE'}
+          </span>
+        </div>
+
+        <h1 style="margin:6px 0 4px;font-size:26px;">${escapeHtml(result.examTitle)}</h1>
         <p class="text-muted text-sm" style="margin:0;">
           ${escapeHtml(result.studentName)} • Roll No: <strong>${escapeHtml(result.rollNumber)}</strong>
           ${result.batch ? ` • ${escapeHtml(result.batch)}` : ''}
         </p>
 
-        <div style="margin:22px auto;display:inline-flex;flex-direction:column;align-items:center;background:var(--primary-soft);border:2px solid var(--primary-border);border-radius:18px;padding:18px 36px;">
-          <div class="text-xs" style="font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:0.06em;">Total Marks Obtained</div>
-          <div style="font-size:44px;font-weight:900;color:var(--primary);line-height:1.1;margin-top:4px;">
+        <div style="margin:22px auto;display:inline-flex;flex-direction:column;align-items:center;background:#f0fdfa;border:2px solid #99f6e4;border-radius:18px;padding:18px 36px;">
+          <div class="text-xs" style="font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:0.06em;">Total Marks Obtained</div>
+          <div style="font-size:44px;font-weight:900;color:#134e4a;line-height:1.1;margin-top:4px;">
             ${result.score} <span style="font-size:22px;color:var(--text-muted);font-weight:700;">/ ${result.totalMarks}</span>
           </div>
-          <div style="font-weight:700;font-size:16px;margin-top:4px;">${result.percentage}% Score</div>
+          <div style="font-weight:700;font-size:16px;margin-top:4px;color:${result.passed ? 'var(--success)' : 'var(--danger)'};">${result.percentage}% Score</div>
         </div>
 
         <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));text-align:left;">
@@ -985,18 +999,19 @@
           </div>
         </div>
 
-        <div class="flex-row mt-3" style="justify-content:center;">
-          <button type="button" id="back-to-lobby-btn" class="btn btn-primary">← Back to Live Exams</button>
-          <button type="button" id="print-result-btn" class="btn btn-secondary">🖨 Print / Save Score Card</button>
+        <div class="flex-row mt-3 no-print" style="justify-content:center;">
+          <button type="button" id="back-to-lobby-btn" class="btn btn-secondary">← Back to Live Exams</button>
+          ${hasPdfToken ? `<button type="button" id="download-pdf-result-btn" class="btn btn-primary">📄 Download Official PDF Report</button>` : ''}
+          <button type="button" id="print-result-btn" class="btn btn-secondary">🖨 Print Score Card</button>
         </div>
 
         ${result.emailDelivery?.status === 'sent' ? `
           <div class="badge badge-success mt-2" style="padding:8px 14px;border-radius:10px;white-space:normal;">
-            📧 Score report automatically emailed to: <strong>${escapeHtml((result.emailDelivery.recipients || []).join(', '))}</strong>
+            📧 Official Score Card + PDF automatically emailed to: <strong>${escapeHtml((result.emailDelivery.recipients || []).join(', '))}</strong>
           </div>
         ` : result.emailDelivery?.status === 'failed' ? `
           <div class="badge badge-warning mt-2" style="padding:8px 14px;border-radius:10px;white-space:normal;">
-            ⚠️ Marks saved, but auto-email could not be delivered (${escapeHtml(result.emailDelivery.error || 'SMTP error')}). Sir can resend from Teacher Portal.
+            ⚠️ Marks saved, but auto-email could not be delivered (${escapeHtml(result.emailDelivery.error || 'SMTP error')}). Sir can resend or download PDF from Teacher Portal.
           </div>
         ` : ''}
 
@@ -1051,6 +1066,37 @@
     });
 
     document.getElementById('print-result-btn').addEventListener('click', () => window.print());
+
+    const downloadPdfBtn = document.getElementById('download-pdf-result-btn');
+    if (downloadPdfBtn) {
+      downloadPdfBtn.addEventListener('click', async () => {
+        const origLabel = downloadPdfBtn.textContent;
+        downloadPdfBtn.disabled = true;
+        downloadPdfBtn.textContent = 'Generating PDF...';
+        try {
+          const pdfUrl = `/api/student/submissions/${encodeURIComponent(result.id)}/pdf?token=${encodeURIComponent(result.pdfToken)}`;
+          const res = await fetch(pdfUrl);
+          if (!res.ok) throw new Error('Failed to generate PDF report');
+          const disp = res.headers.get('Content-Disposition') || '';
+          const nameMatch = disp.match(/filename="([^"]+)"/i);
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = nameMatch ? nameMatch[1] : `CodeAura-Score-Report-${result.rollNumber || 'Result'}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          showToast('Official PDF Score Report downloaded!', 'success');
+        } catch (err) {
+          showToast(err.message || 'Could not download PDF', 'error');
+        } finally {
+          downloadPdfBtn.disabled = false;
+          downloadPdfBtn.textContent = origLabel;
+        }
+      });
+    }
 
     const filterBar = document.getElementById('review-filter-btns');
     if (filterBar) {

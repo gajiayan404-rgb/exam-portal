@@ -5,7 +5,8 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
 const { ExamStore } = require('./src/store');
-const { parseEmailList, sendSmtpMail, buildResultEmail } = require('./src/mailer');
+const { parseEmailList, sendSmtpMail, buildResultEmail, getInlineLogoAttachment } = require('./src/mailer');
+const { generateScoreReportPdf, buildPdfFilename } = require('./src/pdfReport');
 const { fetchAvailableModels, generateMcqsWithAi, generateMixedSubjectMcqs } = require('./src/aiGenerator');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -74,7 +75,7 @@ async function dispatchSubmissionEmail(submissionId, { forceSend = false, custom
       user: emailCfg.smtpUser,
       pass: emailCfg.smtpPass,
       from: emailCfg.smtpUser,
-      timeoutMs: 9000,
+      timeoutMs: 15000,
       rejectUnauthorized: emailCfg.rejectUnauthorized !== false
     };
 
@@ -249,6 +250,24 @@ function requireTeacherAuth(req) {
   return session;
 }
 
+function sendPdfResponse(res, submission, { hideReview = false } = {}) {
+  const settings = store.data.settings;
+  const subForPdf = hideReview ? { ...submission, reviewHidden: true, review: [] } : submission;
+  const pdfBuffer = generateScoreReportPdf({
+    submission: subForPdf,
+    instituteName: settings.instituteName,
+    teacherName: settings.teacherName
+  });
+  const filename = buildPdfFilename(subForPdf);
+  res.writeHead(200, {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Content-Length': pdfBuffer.length,
+    'Cache-Control': 'no-store'
+  });
+  res.end(pdfBuffer);
+}
+
 function csvEscape(val) {
   const str = String(val ?? '');
   if (/[",\n\r]/.test(str)) {
@@ -264,6 +283,8 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.ico': 'image/x-icon'
 };
 
@@ -341,6 +362,12 @@ async function handleApi(req, res, url) {
       const result = store.submitStudentExam(examId, body);
       const emailDelivery = await dispatchSubmissionEmail(result.id);
       result.emailDelivery = emailDelivery;
+      result.pdfToken = signToken({
+        role: 'student-result',
+        submissionId: result.id,
+        hideReview: Boolean(result.reviewHidden),
+        exp: Date.now() + 24 * 60 * 60 * 1000
+      });
       broadcastEvent('submission-created', {
         examId: result.examId,
         studentName: result.studentName,
@@ -350,6 +377,23 @@ async function handleApi(req, res, url) {
         emailStatus: emailDelivery ? emailDelivery.status : 'disabled'
       });
       return sendJson(res, 201, { result });
+    }
+
+    const studentPdfMatch = pathname.match(/^\/api\/student\/submissions\/([^/]+)\/pdf$/);
+    if (method === 'GET' && studentPdfMatch) {
+      const id = decodeURIComponent(studentPdfMatch[1]);
+      const token = url.searchParams.get('token') || '';
+      const session = verifyToken(token);
+      if (!session || session.role !== 'student-result' || session.submissionId !== id) {
+        return sendJson(res, 401, { error: 'Valid student score report token is required.' });
+      }
+      const submission = store.getSubmission(id);
+      if (!submission) {
+        return sendJson(res, 404, { error: 'Submission not found.' });
+      }
+      const exam = store.data.exams.find((e) => e.id === submission.examId);
+      const hideReview = Boolean(session.hideReview || (exam && exam.showResultsImmediately === false));
+      return sendPdfResponse(res, submission, { hideReview });
     }
 
     // --- Teacher Auth ---
@@ -417,6 +461,10 @@ async function handleApi(req, res, url) {
         }
 
         const inst = store.data.settings.instituteName;
+        const inlineLogo = getInlineLogoAttachment();
+        const logoTag = inlineLogo
+          ? `<div style="margin-bottom:12px;"><img src="cid:${inlineLogo.cid}" alt="CodeAura Logo" width="120" style="display:block;width:120px;height:auto;border-radius:8px;border:1px solid #fde68a;" /></div>`
+          : '';
         await sendSmtpMail({
           host,
           port,
@@ -426,9 +474,10 @@ async function handleApi(req, res, url) {
           from: user,
           to: recipients,
           subject: `[${inst}] Test Email Connected Successfully`,
-          text: `Hello ${store.data.settings.teacherName || 'Sir'},\n\nYour email notification setup for ${inst} is working! Student exam scores will be delivered here automatically upon submission.`,
-          html: `<div style="font-family:Segoe UI,Arial,sans-serif;padding:20px;"><h2>✅ Email Connected — ${inst}</h2><p>Your SMTP email settings are working properly. Student exam marks will be emailed automatically when they submit.</p></div>`,
-          timeoutMs: 10000
+          text: `Hello ${store.data.settings.teacherName || 'Sir'},\n\nYour email notification setup for ${inst} is working! Student exam scores (with branded PDF Score Report attachments) will be delivered here automatically upon submission.`,
+          html: `<div style="font-family:Segoe UI,Arial,sans-serif;padding:20px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;max-width:560px;">${logoTag}<h2 style="margin:0 0 8px;color:#0f766e;">Email Connected — ${inst}</h2><p style="margin:0;color:#334155;">Your SMTP email settings are working properly. Student exam marks and branded PDF Score Reports will be emailed automatically when they submit.</p></div>`,
+          inlineImages: inlineLogo ? [inlineLogo] : [],
+          timeoutMs: 15000
         });
         return sendJson(res, 200, { ok: true, recipients });
       }
@@ -643,6 +692,16 @@ async function handleApi(req, res, url) {
           return sendJson(res, 400, { error: delivery.error || 'Email delivery failed.', emailDelivery: delivery });
         }
         return sendJson(res, 200, { ok: true, emailDelivery: delivery });
+      }
+
+      const subPdfMatch = pathname.match(/^\/api\/teacher\/submissions\/([^/]+)\/pdf$/);
+      if (method === 'GET' && subPdfMatch) {
+        const id = decodeURIComponent(subPdfMatch[1]);
+        const submission = store.getSubmission(id);
+        if (!submission) {
+          return sendJson(res, 404, { error: 'Submission not found.' });
+        }
+        return sendPdfResponse(res, submission, { hideReview: false });
       }
 
       const subMatch = pathname.match(/^\/api\/teacher\/submissions\/([^/]+)$/);

@@ -1,6 +1,35 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const net = require('node:net');
 const tls = require('node:tls');
 const crypto = require('node:crypto');
+const { generateScoreReportPdf, buildPdfFilename } = require('./pdfReport');
+
+const LOGO_PATH = path.join(__dirname, '..', 'public', 'assets', 'codeaura-logo.jpg');
+let cachedLogoBuffer = null;
+
+function getLogoBuffer() {
+  if (cachedLogoBuffer !== null) return cachedLogoBuffer;
+  try {
+    if (fs.existsSync(LOGO_PATH)) {
+      cachedLogoBuffer = fs.readFileSync(LOGO_PATH);
+      return cachedLogoBuffer;
+    }
+  } catch {}
+  cachedLogoBuffer = false;
+  return null;
+}
+
+function getInlineLogoAttachment() {
+  const buf = getLogoBuffer();
+  if (!buf) return null;
+  return {
+    cid: 'codeaura-logo@codeaura',
+    filename: 'codeaura-logo.jpg',
+    contentType: 'image/jpeg',
+    content: buf
+  };
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -19,9 +48,14 @@ function encodeMimeSubject(subject) {
   return `=?UTF-8?B?${Buffer.from(str, 'utf8').toString('base64')}?=`;
 }
 
-function wrapBase64(text) {
-  const b64 = Buffer.from(String(text || ''), 'utf8').toString('base64');
+function wrapBufferBase64(bufOrText) {
+  const buf = Buffer.isBuffer(bufOrText) ? bufOrText : Buffer.from(String(bufOrText || ''), 'utf8');
+  const b64 = buf.toString('base64');
   return b64.match(/.{1,76}/g)?.join('\r\n') || '';
+}
+
+function sanitizeHeaderFilename(name, fallback = 'attachment.bin') {
+  return String(name || fallback).replace(/[\r\n"\\]/g, '').trim() || fallback;
 }
 
 function dotStuff(str) {
@@ -46,7 +80,7 @@ function formatDuration(totalSeconds) {
  * Low-level SMTP conversation helper supporting port 465 (TLS) and 587 (STARTTLS).
  */
 class SmtpConnection {
-  constructor({ host, port, secure, timeoutMs = 10000, rejectUnauthorized = true }) {
+  constructor({ host, port, secure, timeoutMs = 15000, rejectUnauthorized = true }) {
     this.host = host;
     this.port = Number(port) || (secure ? 465 : 587);
     this.secure = Boolean(secure);
@@ -97,7 +131,6 @@ class SmtpConnection {
   _tryResolveReply() {
     if (!this.pending) return;
     const lines = this.buffer.split(/\r?\n/);
-    // Keep last potentially incomplete line in buffer
     const completeCount = lines.length - 1;
     if (completeCount <= 0) return;
 
@@ -106,9 +139,7 @@ class SmtpConnection {
       const line = lines[i];
       if (!line) continue;
       collected.push(line);
-      // Final line of SMTP reply has space at index 3: e.g. "250 OK"
       if (/^\d{3} /.test(line)) {
-        const consumedLines = lines.slice(0, i + 1).join('\n').length + 1;
         this.buffer = lines.slice(i + 1).join('\n');
         const code = Number(line.slice(0, 3));
         const text = collected.join('\n');
@@ -167,7 +198,6 @@ class SmtpConnection {
       this._attachListeners(this.socket);
     });
 
-    // Greeting 220
     await this.readReply();
   }
 
@@ -202,7 +232,110 @@ class SmtpConnection {
   }
 }
 
-async function sendSmtpMail({ host, port, secure, user, pass, from, to, subject, text, html, timeoutMs = 10000, rejectUnauthorized = true }) {
+function buildMimeBody({ text, html, inlineImages = [], attachments = [] }) {
+  const altBoundary = `ca_alt_${crypto.randomBytes(8).toString('hex')}`;
+  const altSection = [
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    '',
+    `--${altBoundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrapBufferBase64(text || ''),
+    '',
+    `--${altBoundary}`,
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrapBufferBase64(html || text || ''),
+    '',
+    `--${altBoundary}--`
+  ].join('\r\n');
+
+  let contentSection = altSection;
+  let rootContentType = `multipart/alternative; boundary="${altBoundary}"`;
+
+  const validInline = (inlineImages || []).filter((img) => img && img.content && img.cid);
+  if (validInline.length > 0) {
+    const relBoundary = `ca_rel_${crypto.randomBytes(8).toString('hex')}`;
+    const relParts = [
+      `Content-Type: multipart/related; type="multipart/alternative"; boundary="${relBoundary}"`,
+      '',
+      `--${relBoundary}`,
+      altSection
+    ];
+    for (const img of validInline) {
+      const fname = sanitizeHeaderFilename(img.filename, 'image.jpg');
+      relParts.push(
+        '',
+        `--${relBoundary}`,
+        `Content-Type: ${img.contentType || 'image/jpeg'}; name="${fname}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-ID: <${img.cid}>`,
+        `Content-Disposition: inline; filename="${fname}"`,
+        '',
+        wrapBufferBase64(img.content)
+      );
+    }
+    relParts.push('', `--${relBoundary}--`);
+    contentSection = relParts.join('\r\n');
+    rootContentType = `multipart/related; type="multipart/alternative"; boundary="${relBoundary}"`;
+  }
+
+  const validAttachments = (attachments || []).filter((att) => att && att.content && att.filename);
+  if (validAttachments.length > 0) {
+    const mixBoundary = `ca_mix_${crypto.randomBytes(8).toString('hex')}`;
+    const mixParts = [
+      `--${mixBoundary}`,
+      contentSection
+    ];
+    for (const att of validAttachments) {
+      const fname = sanitizeHeaderFilename(att.filename, 'report.pdf');
+      mixParts.push(
+        '',
+        `--${mixBoundary}`,
+        `Content-Type: ${att.contentType || 'application/pdf'}; name="${fname}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${fname}"`,
+        '',
+        wrapBufferBase64(att.content)
+      );
+    }
+    mixParts.push('', `--${mixBoundary}--`);
+    return {
+      rootContentType: `multipart/mixed; boundary="${mixBoundary}"`,
+      body: mixParts.join('\r\n')
+    };
+  }
+
+  // Strip top Content-Type line if no wrapper was added because top headers set it
+  const strippedAlt = altSection.split('\r\n').slice(2).join('\r\n');
+  const finalBody = validInline.length > 0
+    ? contentSection.split('\r\n').slice(2).join('\r\n')
+    : strippedAlt;
+
+  return {
+    rootContentType,
+    body: finalBody
+  };
+}
+
+async function sendSmtpMail({
+  host,
+  port,
+  secure,
+  user,
+  pass,
+  from,
+  to,
+  subject,
+  text,
+  html,
+  inlineImages = [],
+  attachments = [],
+  timeoutMs = 15000,
+  rejectUnauthorized = true
+}) {
   const recipients = Array.isArray(to) ? to : parseEmailList(to);
   if (recipients.length === 0) {
     throw new Error('No valid recipient email addresses specified.');
@@ -223,7 +356,6 @@ async function sendSmtpMail({ host, port, secure, user, pass, from, to, subject,
       ehlo = await conn.command('EHLO codeaura.local');
     }
 
-    // Authenticate (prefer AUTH PLAIN if advertised, else AUTH LOGIN)
     if (/AUTH[^\n]*PLAIN/i.test(ehlo.text)) {
       const token = Buffer.from(`\u0000${user}\u0000${pass}`, 'utf8').toString('base64');
       await conn.command(`AUTH PLAIN ${token}`);
@@ -240,7 +372,7 @@ async function sendSmtpMail({ host, port, secure, user, pass, from, to, subject,
 
     await conn.command('DATA');
 
-    const boundary = `ca_part_${crypto.randomBytes(8).toString('hex')}`;
+    const { rootContentType, body } = buildMimeBody({ text, html, inlineImages, attachments });
     const msgId = `<${crypto.randomBytes(12).toString('hex')}@${host}>`;
     const headers = [
       `From: CodeAura Exam Portal <${fromAddr}>`,
@@ -249,23 +381,7 @@ async function sendSmtpMail({ host, port, secure, user, pass, from, to, subject,
       `Date: ${new Date().toUTCString()}`,
       `Message-ID: ${msgId}`,
       'MIME-Version: 1.0',
-      `Content-Type: multipart/alternative; boundary="${boundary}"`
-    ].join('\r\n');
-
-    const body = [
-      `--${boundary}`,
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrapBase64(text || ''),
-      '',
-      `--${boundary}`,
-      'Content-Type: text/html; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrapBase64(html || text || ''),
-      '',
-      `--${boundary}--`
+      `Content-Type: ${rootContentType}`
     ].join('\r\n');
 
     const fullPayload = dotStuff(`${headers}\r\n\r\n${body}`);
@@ -283,11 +399,15 @@ async function sendSmtpMail({ host, port, secure, user, pass, from, to, subject,
   }
 }
 
-function buildResultEmail({ submission, instituteName, teacherName }) {
-  const statusLabel = submission.passed ? 'PASSED' : 'NEEDS PRACTICE';
-  const statusColor = submission.passed ? '#059669' : '#dc2626';
+function buildResultEmail({ submission, instituteName, teacherName, includePdf = true }) {
+  const inst = String(instituteName || 'CodeAura Classroom').trim() || 'CodeAura Classroom';
+  const passed = Boolean(submission.passed);
+  const statusLabel = passed ? 'PASSED' : 'NEEDS PRACTICE';
+  const statusColor = passed ? '#059669' : '#dc2626';
+  const statusBg = passed ? '#ecfdf5' : '#fef2f2';
+  const statusBorder = passed ? '#a7f3d0' : '#fecaca';
 
-  const subject = `[${instituteName}] ${submission.studentName} (${submission.rollNumber}) — ${submission.score}/${submission.totalMarks} (${submission.percentage}%) | ${submission.examTitle}`;
+  const subject = `[${inst}] ${submission.studentName} (${submission.rollNumber}) — ${submission.score}/${submission.totalMarks} (${submission.percentage}%) | ${submission.examTitle}`;
 
   const subjLines = (submission.subjectBreakdown || [])
     .map((sb) => `  - ${sb.subjectName}: ${sb.marksObtained}/${sb.maxMarks} (${sb.correct}/${sb.totalQuestions} correct)`)
@@ -297,10 +417,12 @@ function buildResultEmail({ submission, instituteName, teacherName }) {
   const vCount = Number(proctor.violationsCount) || 0;
   const proctorLine = vCount > 0
     ? `Proctoring Flags: ${vCount} violation(s)${proctor.autoSubmittedReason === 'proctor-limit' ? ' (Auto-submitted on limit)' : ''}`
-    : 'Proctoring: Clean (0 violations)';
+    : 'Proctoring Integrity: Clean (0 violations)';
+
+  const pdfFilename = buildPdfFilename(submission);
 
   const text = [
-    `${instituteName} — Exam Result Report`,
+    `${inst} — Official Exam Score Report`,
     `========================================`,
     `Exam: ${submission.examTitle}`,
     `Student: ${submission.studentName}`,
@@ -317,40 +439,53 @@ function buildResultEmail({ submission, instituteName, teacherName }) {
     `Subject-wise Breakdown:`,
     subjLines,
     ``,
+    includePdf ? `Attached PDF Score Report: ${pdfFilename}` : null,
     `Submitted At: ${new Date(submission.submittedAt).toLocaleString()}`,
-    `Sent automatically by ${instituteName} (${teacherName || 'Sir'})`
+    `Sent automatically by ${inst} (${teacherName || 'Sir'})`
   ].filter(Boolean).join('\n');
 
+  const inlineLogo = getInlineLogoAttachment();
+  const inlineImages = inlineLogo ? [inlineLogo] : [];
+  const logoHtml = inlineLogo
+    ? `<img src="cid:${inlineLogo.cid}" alt="CodeAura Logo" width="108" style="display:block;width:108px;height:auto;border-radius:8px;border:1px solid #fde68a;" />`
+    : `<div style="padding:10px 14px;background:#0f766e;color:#ffffff;font-weight:800;border-radius:8px;font-size:15px;">&lt;/&gt; CodeAura</div>`;
+
   const letters = ['A', 'B', 'C', 'D'];
-  const subjHtmlRows = (submission.subjectBreakdown || []).map((sb) => `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;">${escapeHtml(sb.subjectName)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;">${sb.marksObtained} / ${sb.maxMarks}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#059669;">✓ ${sb.correct}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#dc2626;">✕ ${sb.wrong}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;">– ${sb.skipped}</td>
+  const subjHtmlRows = (submission.subjectBreakdown || []).map((sb, idx) => `
+    <tr style="background:${idx % 2 === 1 ? '#f8fafc' : '#ffffff'};">
+      <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;">${escapeHtml(sb.subjectName)}</td>
+      <td style="padding:9px 6px;border-bottom:1px solid #e2e8f0;color:#0f172a;text-align:center;font-weight:600;">${sb.marksObtained}/${sb.maxMarks}</td>
+      <td style="padding:9px 6px;border-bottom:1px solid #e2e8f0;color:#059669;text-align:center;font-weight:700;">${sb.correct}</td>
+      <td style="padding:9px 6px;border-bottom:1px solid #e2e8f0;color:#dc2626;text-align:center;font-weight:700;">${sb.wrong}</td>
+      <td style="padding:9px 6px;border-bottom:1px solid #e2e8f0;color:#64748b;text-align:center;">${sb.skipped}</td>
     </tr>
   `).join('');
 
   const reviewRows = (submission.review || []).map((item, idx) => {
-    const chosenText = item.selectedIndex !== null && item.selectedIndex !== undefined
+    const chosenText = item.selectedIndex !== null && item.selectedIndex !== undefined && item.options?.[item.selectedIndex] !== undefined
       ? `${letters[item.selectedIndex]}. ${item.options[item.selectedIndex]}`
-      : 'Not Answered';
-    const correctText = `${letters[item.correctIndex]}. ${item.options[item.correctIndex]}`;
+      : 'Not Attempted';
+    const correctText = item.options?.[item.correctIndex] !== undefined
+      ? `${letters[item.correctIndex]}. ${item.options[item.correctIndex]}`
+      : 'N/A';
     const badgeBg = item.status === 'correct' ? '#ecfdf5' : item.status === 'wrong' ? '#fef2f2' : '#f1f5f9';
     const badgeColor = item.status === 'correct' ? '#059669' : item.status === 'wrong' ? '#dc2626' : '#475569';
     const statusText = item.status === 'correct' ? `Correct (+${item.marksAwarded})` : item.status === 'wrong' ? `Wrong (${item.marksAwarded})` : 'Skipped';
 
     return `
-      <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#ffffff;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <span style="font-size:12px;font-weight:700;color:#4f46e5;">Q${idx + 1} • ${escapeHtml(item.subjectName)}</span>
-          <span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:${badgeBg};color:${badgeColor};">${statusText}</span>
-        </div>
-        <div style="font-weight:600;color:#0f172a;margin-bottom:6px;">${escapeHtml(item.question)}</div>
-        ${item.code ? `<pre style="background:#0f172a;color:#f1f5f9;padding:8px 10px;border-radius:6px;font-size:12px;overflow-x:auto;">${escapeHtml(item.code)}</pre>` : ''}
-        <div style="font-size:13px;color:#334155;">
-          <div><strong>Selected:</strong> ${escapeHtml(chosenText)}</div>
+      <div style="border:1px solid #e2e8f0;border-left:4px solid ${badgeColor};border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#ffffff;">
+        <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:6px;">
+          <tr>
+            <td style="font-size:12px;font-weight:700;color:#0f766e;">Q${idx + 1} &bull; ${escapeHtml(item.subjectName)}</td>
+            <td style="text-align:right;">
+              <span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:${badgeBg};color:${badgeColor};">${statusText}</span>
+            </td>
+          </tr>
+        </table>
+        <div style="font-weight:600;color:#0f172a;font-size:14px;margin-bottom:6px;line-height:1.45;">${escapeHtml(item.question)}</div>
+        ${item.code ? `<pre style="background:#0f172a;color:#f1f5f9;padding:8px 10px;border-radius:6px;font-size:12px;overflow-x:auto;margin:6px 0 8px;">${escapeHtml(item.code)}</pre>` : ''}
+        <div style="font-size:13px;color:#334155;line-height:1.5;">
+          <div><strong style="color:#475569;">Selected:</strong> <span style="color:${item.status === 'wrong' ? '#dc2626' : '#0f172a'};">${escapeHtml(chosenText)}</span></div>
           <div style="color:#059669;"><strong>Correct:</strong> ${escapeHtml(correctText)}</div>
         </div>
       </div>
@@ -358,60 +493,113 @@ function buildResultEmail({ submission, instituteName, teacherName }) {
   }).join('');
 
   const html = `
-  <div style="font-family:Segoe UI,Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
-    <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
-      <div style="background:#4f46e5;color:#ffffff;padding:20px 24px;">
-        <div style="font-size:12px;opacity:0.9;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(instituteName)}</div>
-        <h1 style="margin:4px 0 0;font-size:20px;">Exam Score Report</h1>
+  <div style="font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;padding:16px 10px;color:#0f172a;">
+    <div style="max-width:660px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+      <table role="presentation" style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="width:72%;height:5px;background:#0f766e;"></td>
+          <td style="width:28%;height:5px;background:#f97316;"></td>
+        </tr>
+      </table>
+
+      <div style="background:#fffdf8;padding:18px 20px;border-bottom:1px solid #e2e8f0;">
+        <table role="presentation" style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="width:116px;vertical-align:middle;padding-right:14px;">
+              <div style="background:#fff8ec;border-radius:10px;padding:4px;display:inline-block;">
+                ${logoHtml}
+              </div>
+            </td>
+            <td style="vertical-align:middle;">
+              <div style="font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:0.07em;">${escapeHtml(inst)}</div>
+              <h1 style="margin:3px 0 4px;font-size:20px;color:#0f172a;line-height:1.2;">Official Exam Score Report</h1>
+              <div style="font-size:12px;color:#64748b;">Examiner: ${escapeHtml(teacherName || 'Sir')} &bull; ID: ${escapeHtml(submission.id)}</div>
+            </td>
+          </tr>
+        </table>
       </div>
-      <div style="padding:22px 24px;">
-        <div style="margin-bottom:16px;">
-          <div style="font-size:18px;font-weight:700;">${escapeHtml(submission.examTitle)}</div>
-          <div style="color:#475569;font-size:14px;margin-top:4px;">
-            Student: <strong>${escapeHtml(submission.studentName)}</strong> &bull;
-            Roll No: <strong>${escapeHtml(submission.rollNumber)}</strong>
-            ${submission.batch ? ` &bull; Batch: <strong>${escapeHtml(submission.batch)}</strong>` : ''}
-            ${submission.studentEmail ? ` &bull; Email: ${escapeHtml(submission.studentEmail)}` : ''}
+
+      <div style="padding:18px 20px;">
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+          <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;">${escapeHtml(submission.examTitle)}</div>
+          <div style="color:#475569;font-size:13px;line-height:1.55;">
+            Student: <strong style="color:#0f172a;">${escapeHtml(submission.studentName)}</strong> &bull;
+            Roll No: <strong style="color:#0f172a;">${escapeHtml(submission.rollNumber)}</strong>
+            ${submission.batch ? ` &bull; Batch: <strong style="color:#0f172a;">${escapeHtml(submission.batch)}</strong>` : ''}
+            ${submission.studentEmail ? `<br/>Email: ${escapeHtml(submission.studentEmail)}` : ''}
           </div>
         </div>
 
-        <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:16px;text-align:center;margin-bottom:18px;">
-          <div style="font-size:12px;font-weight:700;color:#4f46e5;text-transform:uppercase;">Total Marks Obtained</div>
-          <div style="font-size:34px;font-weight:900;color:#312e81;margin:4px 0;">${submission.score} / ${submission.totalMarks}</div>
-          <div style="font-size:15px;font-weight:700;color:${statusColor};">${submission.percentage}% &bull; ${statusLabel}</div>
-          <div style="font-size:13px;color:#475569;margin-top:6px;">
-            Correct: ${submission.correctCount} &bull; Wrong: ${submission.wrongCount} &bull; Skipped: ${submission.skippedCount} &bull; Time: ${formatDuration(submission.timeTakenSeconds)}
+        <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:16px;text-align:center;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:0.06em;">Total Marks Obtained</div>
+          <div style="font-size:36px;font-weight:900;color:#134e4a;margin:4px 0;line-height:1.1;">${submission.score} / ${submission.totalMarks}</div>
+          <div style="display:inline-block;margin:4px 0 6px;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:700;background:${statusBg};border:1px solid ${statusBorder};color:${statusColor};">
+            ${submission.percentage}% &bull; ${statusLabel}
           </div>
-          <div style="font-size:12.5px;margin-top:6px;font-weight:700;color:${vCount > 0 ? '#dc2626' : '#059669'};">
+          <div style="font-size:13px;color:#334155;margin-top:6px;">
+            Correct: <strong style="color:#059669;">${submission.correctCount}</strong> &bull;
+            Wrong: <strong style="color:#dc2626;">${submission.wrongCount}</strong> &bull;
+            Skipped: <strong>${submission.skippedCount}</strong> &bull;
+            Time: <strong>${formatDuration(submission.timeTakenSeconds)}</strong>
+          </div>
+          <div style="font-size:12px;margin-top:6px;font-weight:700;color:${vCount > 0 ? '#dc2626' : '#059669'};">
             ${escapeHtml(proctorLine)}
           </div>
         </div>
 
-        <h3 style="margin:0 0 8px;font-size:15px;">Subject-wise Breakdown</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;border:1px solid #e2e8f0;">
-          <thead>
-            <tr style="background:#f1f5f9;text-align:left;">
-              <th style="padding:8px 12px;">Subject</th>
-              <th style="padding:8px 12px;">Marks</th>
-              <th style="padding:8px 12px;">Correct</th>
-              <th style="padding:8px 12px;">Wrong</th>
-              <th style="padding:8px 12px;">Skipped</th>
-            </tr>
-          </thead>
-          <tbody>${subjHtmlRows}</tbody>
-        </table>
+        ${includePdf ? `
+          <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;font-size:12.5px;color:#9a3412;margin-bottom:16px;">
+            <strong>Official PDF Attached:</strong> Open <strong>${escapeHtml(pdfFilename)}</strong> attached below for the full branded CodeAura printable report.
+          </div>
+        ` : ''}
 
-        <h3 style="margin:0 0 10px;font-size:15px;">Checked Answer Sheet</h3>
-        ${reviewRows}
+        <h3 style="margin:0 0 8px;font-size:14px;color:#0f172a;">Subject-wise Breakdown</h3>
+        <div style="overflow-x:auto;margin-bottom:18px;">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid #e2e8f0;background:#ffffff;">
+            <thead>
+              <tr style="background:#134e4a;color:#ffffff;">
+                <th style="padding:8px;text-align:left;">Subject</th>
+                <th style="padding:8px;text-align:center;">Marks</th>
+                <th style="padding:8px;text-align:center;">Correct</th>
+                <th style="padding:8px;text-align:center;">Wrong</th>
+                <th style="padding:8px;text-align:center;">Skip</th>
+              </tr>
+            </thead>
+            <tbody>${subjHtmlRows}</tbody>
+          </table>
+        </div>
+
+        <h3 style="margin:0 0 10px;font-size:14px;color:#0f172a;">Checked Answer Sheet</h3>
+        ${reviewRows.length > 0 ? reviewRows : `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-size:13px;color:#64748b;">Detailed answer review is hidden by Sir for this exam.</div>`}
       </div>
     </div>
   </div>`;
 
-  return { subject, text, html };
+  const attachments = [];
+  let pdfBuffer = null;
+  if (includePdf) {
+    pdfBuffer = generateScoreReportPdf({ submission, instituteName: inst, teacherName });
+    attachments.push({
+      filename: pdfFilename,
+      contentType: 'application/pdf',
+      content: pdfBuffer
+    });
+  }
+
+  return {
+    subject,
+    text,
+    html,
+    inlineImages,
+    attachments,
+    pdfFilename,
+    pdfBuffer
+  };
 }
 
 module.exports = {
   parseEmailList,
   sendSmtpMail,
-  buildResultEmail
+  buildResultEmail,
+  getInlineLogoAttachment
 };

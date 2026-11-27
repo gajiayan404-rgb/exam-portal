@@ -1753,7 +1753,8 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
         <td>
           <div class="flex-row">
             <button type="button" class="btn btn-secondary btn-sm view-sub-btn" data-id="${escapeHtml(s.id)}">View Paper</button>
-            <button type="button" class="btn btn-soft-primary btn-sm send-sub-email-btn" data-id="${escapeHtml(s.id)}" title="Send/Resend Result Email">📧</button>
+            <button type="button" class="btn btn-soft-primary btn-sm download-sub-pdf-btn" data-id="${escapeHtml(s.id)}" title="Download Official PDF Report">📄 PDF</button>
+            <button type="button" class="btn btn-soft-primary btn-sm send-sub-email-btn" data-id="${escapeHtml(s.id)}" title="Send/Resend Result Email with PDF">📧</button>
             <button type="button" class="btn btn-soft-danger btn-sm del-sub-btn" data-id="${escapeHtml(s.id)}">✕</button>
           </div>
         </td>
@@ -1764,6 +1765,20 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
       btn.addEventListener('click', () => {
         const sub = state.submissions.find((item) => item.id === btn.dataset.id);
         if (sub) openSubmissionModal(sub);
+      });
+    });
+
+    tbody.querySelectorAll('.download-sub-pdf-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sub = state.submissions.find((item) => item.id === btn.dataset.id);
+        const fallback = sub
+          ? `CodeAura-Score-Report-${sub.rollNumber || 'Result'}.pdf`
+          : 'CodeAura-Score-Report.pdf';
+        downloadTeacherFile(
+          `/api/teacher/submissions/${encodeURIComponent(btn.dataset.id)}/pdf`,
+          fallback,
+          btn
+        );
       });
     });
 
@@ -1870,6 +1885,7 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
           <p class="card-subtitle">${escapeHtml(sub.examTitle)} • Score: <strong>${sub.score}/${sub.totalMarks} (${sub.percentage}%)</strong>${sub.studentEmail ? ` • ${escapeHtml(sub.studentEmail)}` : ''}</p>
         </div>
         <div class="flex-row">
+          <button type="button" class="btn btn-primary btn-sm" id="modal-download-pdf-btn">📄 Download PDF</button>
           <button type="button" class="btn btn-soft-primary btn-sm" id="modal-resend-email-btn">📧 Send Email</button>
           <button type="button" class="btn btn-ghost btn-sm" id="modal-close-btn">✕</button>
         </div>
@@ -1880,6 +1896,13 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
       <div class="stack-md">${reviewHtml}</div>
     `);
     document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-download-pdf-btn').addEventListener('click', (e) => {
+      downloadTeacherFile(
+        `/api/teacher/submissions/${encodeURIComponent(sub.id)}/pdf`,
+        `CodeAura-Score-Report-${sub.rollNumber || 'Result'}.pdf`,
+        e.currentTarget
+      );
+    });
     document.getElementById('modal-resend-email-btn').addEventListener('click', async () => {
       const btn = document.getElementById('modal-resend-email-btn');
       btn.disabled = true;
@@ -1916,25 +1939,47 @@ EXP: The <a> anchor tag creates hyperlinks."></textarea>
     }
   });
 
-  document.getElementById('export-csv-btn').addEventListener('click', async () => {
-    const examId = document.getElementById('results-exam-filter').value || 'all';
+  async function downloadTeacherFile(endpoint, fallbackFilename, triggerBtn = null) {
+    const origLabel = triggerBtn ? triggerBtn.textContent : '';
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = 'Downloading...';
+    }
     try {
-      const res = await fetch(`/api/teacher/submissions/export.csv?examId=${encodeURIComponent(examId)}`, {
+      const res = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${getTeacherToken()}` }
       });
-      if (!res.ok) throw new Error('Failed to export CSV');
+      if (!res.ok) throw new Error(`Failed to download ${fallbackFilename}`);
+      const disp = res.headers.get('Content-Disposition') || '';
+      const nameMatch = disp.match(/filename="([^"]+)"/i);
+      const filename = nameMatch ? nameMatch[1] : fallbackFilename;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'codeaura-exam-results.csv';
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      showToast(`Downloaded ${filename}`, 'success');
     } catch (err) {
-      showToast(err.message, 'error');
+      showToast(err.message || 'Download failed', 'error');
+    } finally {
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = origLabel;
+      }
     }
+  }
+
+  document.getElementById('export-csv-btn').addEventListener('click', (e) => {
+    const examId = document.getElementById('results-exam-filter').value || 'all';
+    downloadTeacherFile(
+      `/api/teacher/submissions/export.csv?examId=${encodeURIComponent(examId)}`,
+      'codeaura-exam-results.csv',
+      e.currentTarget
+    );
   });
 
   document.getElementById('clear-results-btn').addEventListener('click', async () => {
