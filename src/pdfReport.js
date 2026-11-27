@@ -670,104 +670,13 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
   }
   doc.y += metaH + 16;
 
-  // 3. Subject-Wise Performance Table (clean neutral header & crisp rules)
-  const subjects = Array.isArray(submission.subjectBreakdown) ? submission.subjectBreakdown : [];
-  if (subjects.length > 0) {
-    drawSectionHeading(
-      doc,
-      'Subject-Wise Breakdown',
-      `Correct: ${submission.correctCount ?? 0}  •  Wrong: ${submission.wrongCount ?? 0}  •  Skipped: ${submission.skippedCount ?? 0}`
-    );
-
-    const cols = [
-      { label: 'Subject', w: 185.28, align: 'left' },
-      { label: 'Marks', w: 80, align: 'center' },
-      { label: 'Accuracy', w: 72, align: 'center' },
-      { label: 'Correct', w: 59, align: 'center' },
-      { label: 'Wrong', w: 59, align: 'center' },
-      { label: 'Skipped', w: 60, align: 'center' }
-    ];
-
-    const drawTableHeader = () => {
-      doc.ensureSpace(44);
-      const hy = doc.y;
-      doc.drawRect(MARGIN_X, hy, CONTENT_W, 21, { fill: C.surfaceAlt, stroke: C.borderStrong, lineWidth: 0.7 });
-      let cx = MARGIN_X;
-      for (const col of cols) {
-        const tx = col.align === 'center' ? cx + col.w / 2 : cx + 10;
-        doc.drawText(col.label, tx, hy + 13.8, { font: 'F2', size: 8.4, color: C.slateDark, align: col.align });
-        cx += col.w;
-      }
-      doc.y += 21;
-    };
-
-    drawTableHeader();
-
-    subjects.forEach((sb, idx) => {
-      if (doc.ensureSpace(22)) drawTableHeader();
-      const ry = doc.y;
-      const bg = idx % 2 === 1 ? C.surface : C.white;
-      doc.drawRect(MARGIN_X, ry, CONTENT_W, 21, { fill: bg, stroke: C.border, lineWidth: 0.55 });
-
-      const subAcc = sb.maxMarks > 0 ? `${Math.max(0, Math.round((sb.marksObtained / sb.maxMarks) * 100))}%` : '0%';
-      let cx = MARGIN_X;
-
-      doc.drawText(truncateText(sb.subjectName || sb.subjectId || 'Subject', cols[0].w - 16, 'F2', 8.8), cx + 10, ry + 13.5, {
-        font: 'F2',
-        size: 8.8,
-        color: C.ink
-      });
-      cx += cols[0].w;
-
-      doc.drawText(`${sb.marksObtained ?? 0} / ${sb.maxMarks ?? 0}`, cx + cols[1].w / 2, ry + 13.5, {
-        font: 'F2',
-        size: 8.8,
-        color: C.ink,
-        align: 'center'
-      });
-      cx += cols[1].w;
-
-      doc.drawText(subAcc, cx + cols[2].w / 2, ry + 13.5, { font: 'F1', size: 8.8, color: C.muted, align: 'center' });
-      cx += cols[2].w;
-
-      doc.drawText(String(sb.correct ?? 0), cx + cols[3].w / 2, ry + 13.5, { font: 'F2', size: 8.8, color: C.ink, align: 'center' });
-      cx += cols[3].w;
-
-      doc.drawText(String(sb.wrong ?? 0), cx + cols[4].w / 2, ry + 13.5, { font: 'F2', size: 8.8, color: C.ink, align: 'center' });
-      cx += cols[4].w;
-
-      doc.drawText(String(sb.skipped ?? 0), cx + cols[5].w / 2, ry + 13.5, { font: 'F1', size: 8.8, color: C.subtle, align: 'center' });
-      doc.y += 21;
-    });
-
-    if (subjects.length > 1) {
-      doc.ensureSpace(22);
-      const ry = doc.y;
-      doc.drawRect(MARGIN_X, ry, CONTENT_W, 21, { fill: C.surfaceAlt, stroke: C.borderStrong, lineWidth: 0.7 });
-      let cx = MARGIN_X;
-      doc.drawText('TOTAL', cx + 10, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink });
-      cx += cols[0].w;
-      doc.drawText(`${submission.score ?? 0} / ${submission.totalMarks ?? 0}`, cx + cols[1].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
-      cx += cols[1].w;
-      doc.drawText(`${submission.percentage ?? 0}%`, cx + cols[2].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
-      cx += cols[2].w;
-      doc.drawText(String(submission.correctCount ?? 0), cx + cols[3].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
-      cx += cols[3].w;
-      doc.drawText(String(submission.wrongCount ?? 0), cx + cols[4].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
-      cx += cols[4].w;
-      doc.drawText(String(submission.skippedCount ?? 0), cx + cols[5].w / 2, ry + 13.5, { font: 'F1', size: 8.5, color: C.subtle, align: 'center' });
-      doc.y += 21;
-    }
-
-    doc.y += 16;
-  }
-
-  // 4. Clean Monochrome Answer Sheet Review
+  // 3. Clean Monochrome Answer Sheet Review
   const review = Array.isArray(submission.review) ? submission.review : [];
+  const summaryStats = `Correct: ${submission.correctCount ?? 0}  •  Wrong: ${submission.wrongCount ?? 0}  •  Skipped: ${submission.skippedCount ?? 0}`;
   drawSectionHeading(
     doc,
     'Checked Answer Sheet',
-    review.length > 0 ? `${review.length} Questions` : 'Summary Only'
+    review.length > 0 ? `${review.length} Questions  •  ${summaryStats}` : summaryStats
   );
 
   if (review.length === 0) {
