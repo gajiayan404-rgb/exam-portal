@@ -101,7 +101,7 @@ async function fetchAvailableModels({ baseUrl, apiKey, timeoutMs = 15000 }) {
     }));
 }
 
-async function callChatCompletion({ baseUrl, apiKey, model, messages, useJsonFormat = true, temperature = 0.82, timeoutMs = 45000 }) {
+async function callChatCompletion({ baseUrl, apiKey, model, messages, useJsonFormat = true, temperature = 0.82, timeoutMs = 75000 }) {
   const base = normalizeBaseUrl(baseUrl);
   const body = {
     model,
@@ -156,7 +156,8 @@ async function generateSingleBatch({
   count = 5,
   difficulty = 'Mixed',
   avoidQuestions = [],
-  timeoutMs = 55000
+  batchHint = '',
+  timeoutMs = 75000
 }) {
   const chosenModel = String(model || 'deepseek-v4.1-flash').trim();
   const safeCount = Math.max(1, Math.min(20, Number(count) || 5));
@@ -171,7 +172,7 @@ async function generateSingleBatch({
     'practical problem solving and conceptual understanding',
     'performance, security, and clean architecture scenarios'
   ];
-  const lensPick = lenses[Math.floor(Math.random() * lenses.length)];
+  const lensPick = batchHint || lenses[Math.floor(Math.random() * lenses.length)];
 
   const systemPrompt = [
     'You are an expert computer science instructor writing multiple-choice exam questions.',
@@ -245,7 +246,8 @@ async function generateMcqsWithAi({
   count = 5,
   difficulty = 'Mixed',
   existingQuestions = [],
-  timeoutMs = 55000
+  minRequired = null,
+  timeoutMs = 75000
 }) {
   const base = normalizeBaseUrl(baseUrl);
   if (!base || !apiKey) {
@@ -255,6 +257,9 @@ async function generateMcqsWithAi({
   }
 
   const targetCount = Math.max(1, Math.min(50, Number(count) || 5));
+  const requiredFloor = Number.isFinite(Number(minRequired)) && Number(minRequired) > 0
+    ? Math.min(targetCount, Number(minRequired))
+    : targetCount;
   const collected = [];
   const existingSet = new Set(
     (Array.isArray(existingQuestions) ? existingQuestions : [])
@@ -263,12 +268,52 @@ async function generateMcqsWithAi({
   );
   const seenQuestions = new Set(existingSet);
 
-  let remaining = targetCount;
+  const chunkHints = [
+    'syntax rules, runtime behavior, and core API output snippets',
+    'debugging tricky code bugs, async/edge cases, and common pitfalls',
+    'data structures, best practices, and real-world problem solving'
+  ];
+
+  // Run parallel chunks when targetCount > 18 to keep generation fast
+  if (targetCount > 18) {
+    const numChunks = targetCount > 36 ? 3 : 2;
+    const baseSize = Math.floor(targetCount / numChunks);
+    let rem = targetCount % numChunks;
+    const chunkJobs = Array.from({ length: numChunks }, (_, idx) => {
+      const sz = baseSize + (rem > 0 ? 1 : 0);
+      if (rem > 0) rem -= 1;
+      return generateSingleBatch({
+        baseUrl: base,
+        apiKey,
+        model,
+        subjectId,
+        subjectName,
+        topic,
+        count: Math.min(20, sz),
+        difficulty,
+        avoidQuestions: [...seenQuestions],
+        batchHint: chunkHints[idx % chunkHints.length],
+        timeoutMs
+      }).catch(() => []);
+    });
+    const parallelBatches = await Promise.all(chunkJobs);
+    for (const batch of parallelBatches) {
+      for (const q of batch) {
+        const key = q.question.trim().toLowerCase();
+        if (!seenQuestions.has(key) && collected.length < targetCount) {
+          seenQuestions.add(key);
+          collected.push(q);
+        }
+      }
+    }
+  }
+
+  let remaining = targetCount - collected.length;
   let attempts = 0;
-  const maxAttempts = Math.ceil(targetCount / 15) + 2;
-  while (remaining > 0 && attempts < maxAttempts) {
+  const maxAttempts = Math.ceil(targetCount / 18) + 2;
+  while (collected.length < requiredFloor && remaining > 0 && attempts < maxAttempts) {
     attempts += 1;
-    const batchSize = Math.min(15, remaining);
+    const batchSize = Math.min(18, remaining);
     const batch = await generateSingleBatch({
       baseUrl: base,
       apiKey,
@@ -279,6 +324,7 @@ async function generateMcqsWithAi({
       count: batchSize,
       difficulty,
       avoidQuestions: [...seenQuestions],
+      batchHint: chunkHints[attempts % chunkHints.length],
       timeoutMs
     });
 
@@ -310,7 +356,7 @@ async function generateMixedSubjectMcqs({
   count = 10,
   difficulty = 'Mixed',
   existingBySubject = {},
-  timeoutMs = 55000
+  timeoutMs = 75000
 }) {
   const targetTotal = Math.max(1, Math.min(50, Number(count) || 10));
   const activeSubjects = subjects.slice(0, targetTotal);

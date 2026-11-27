@@ -4,7 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
-const { ExamStore } = require('./src/store');
+const { ExamStore, getLocalDateKey } = require('./src/store');
 const { parseEmailList, sendSmtpMail, buildResultEmail, getInlineLogoAttachment } = require('./src/mailer');
 const { generateScoreReportPdf, buildPdfFilename } = require('./src/pdfReport');
 const { fetchAvailableModels, generateMcqsWithAi, generateMixedSubjectMcqs } = require('./src/aiGenerator');
@@ -12,11 +12,70 @@ const { fetchAvailableModels, generateMcqsWithAi, generateMixedSubjectMcqs } = r
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_DIR = path.join(__dirname, 'data');
-const SECRET_PATH = path.join(DATA_DIR, '.session-secret');
 
 const store = new ExamStore();
+const DATA_DIR = path.dirname(store.storePath);
+const SECRET_PATH = path.join(DATA_DIR, '.session-secret');
 const sseClients = new Set();
+const activeAiPoolJobs = new Map();
+
+async function ensureDailyAiPoolForExam(examId, { forceFresh = false } = {}) {
+  const aiCfg = store.getRawAiConfig();
+  if (!aiCfg.enabled || !aiCfg.baseUrl || !aiCfg.apiKey) {
+    return { generatedCount: 0, skipped: 'ai-disabled' };
+  }
+
+  const exam = store.data.exams.find((e) => e.id === examId);
+  if (!exam || exam.aiAutoGenerate === false) {
+    return { generatedCount: 0, skipped: 'ai-disabled-on-exam' };
+  }
+
+  const todayKey = getLocalDateKey();
+  const jobKey = forceFresh ? `${examId}:force` : `${examId}:${todayKey}`;
+  if (activeAiPoolJobs.has(jobKey)) {
+    return activeAiPoolJobs.get(jobKey);
+  }
+
+  const task = (async () => {
+    const status = store.getExamAiPoolStatus(examId, { dateKey: todayKey, forceFresh });
+    if (!status || status.deficits.length === 0) {
+      return { generatedCount: 0, ready: true };
+    }
+
+    const subjMap = new Map(store.listSubjects().map((s) => [s.id, s]));
+    const jobs = status.deficits.map(async (d) => {
+      const subj = subjMap.get(d.subjectId);
+      const existingQuestions = store
+        .listQuestions({ subjectId: d.subjectId })
+        .filter((q) => q.isAiGenerated)
+        .map((q) => q.question);
+      const mcqs = await generateMcqsWithAi({
+        baseUrl: aiCfg.baseUrl,
+        apiKey: aiCfg.apiKey,
+        model: aiCfg.model || 'deepseek-v4.1-flash',
+        subjectId: d.subjectId,
+        subjectName: subj ? (subj.fullName || subj.name) : d.subjectId,
+        count: d.generateCount,
+        difficulty: 'Mixed',
+        existingQuestions,
+        minRequired: Math.max(1, d.needCount - d.existingTodayCount)
+      });
+      const added = store.bulkAddQuestions(mcqs.map((q) => ({ ...q, isAiGenerated: true })));
+      return added;
+    });
+
+    const nestedAdded = await Promise.all(jobs);
+    const addedAll = nestedAdded.flat();
+    store.applyFreshAiToExam(examId, { dateKey: todayKey });
+    broadcastEvent('exams-updated', { examId, aiReady: true });
+    return { generatedCount: addedAll.length, ready: true };
+  })().finally(() => {
+    activeAiPoolJobs.delete(jobKey);
+  });
+
+  activeAiPoolJobs.set(jobKey, task);
+  return task;
+}
 
 async function dispatchSubmissionEmail(submissionId, { forceSend = false, customTo = '' } = {}) {
   const submission = store.getSubmission(submissionId);
@@ -351,6 +410,18 @@ async function handleApi(req, res, url) {
     if (method === 'GET' && studentExamMatch) {
       const examId = decodeURIComponent(studentExamMatch[1]);
       const roll = url.searchParams.get('roll') || '';
+      const targetExam = store.data.exams.find((e) => e.id === examId && e.isLive);
+      if (targetExam && !targetExam.isLocked && targetExam.aiAutoGenerate !== false) {
+        const aiCfg = store.getRawAiConfig();
+        const status = store.getExamAiPoolStatus(examId);
+        if (aiCfg.enabled && aiCfg.apiKey && status && !status.ready) {
+          try {
+            await ensureDailyAiPoolForExam(examId);
+          } catch (err) {
+            console.error('[AI Auto-Pool Warning]', err.message);
+          }
+        }
+      }
       const rawExam = store.getExamForStudent(examId, roll);
       const { _paperSpec, ...exam } = rawExam;
       const paperToken = signToken({
@@ -616,7 +687,12 @@ async function handleApi(req, res, url) {
       if (method === 'POST' && pathname === '/api/teacher/exams') {
         const body = await readJsonBody(req);
         const exam = store.saveExam(body);
-        broadcastEvent('exams-updated', { examId: exam.id, isLive: exam.isLive });
+        broadcastEvent('exams-updated', { examId: exam.id, isLive: exam.isLive, isLocked: exam.isLocked });
+        if (exam.aiAutoGenerate !== false) {
+          ensureDailyAiPoolForExam(exam.id).catch((err) => {
+            console.error('[AI Pre-Warm Warning]', err.message);
+          });
+        }
         return sendJson(res, body.id ? 200 : 201, { exam });
       }
 
@@ -633,9 +709,32 @@ async function handleApi(req, res, url) {
       if (method === 'PATCH' && examLockMatch) {
         const id = decodeURIComponent(examLockMatch[1]);
         const body = await readJsonBody(req);
+        const wantUnlock = !Boolean(body.isLocked);
+        if (wantUnlock) {
+          const target = store.data.exams.find((e) => e.id === id);
+          if (target && target.aiAutoGenerate !== false) {
+            try {
+              await ensureDailyAiPoolForExam(id);
+            } catch (err) {
+              console.error('[AI Unlock Generation Warning]', err.message);
+            }
+          }
+        }
         const exam = store.toggleExamLock(id, body.isLocked);
         broadcastEvent('exams-updated', { examId: exam.id, isLive: exam.isLive, isLocked: exam.isLocked });
         return sendJson(res, 200, { exam });
+      }
+
+      const examRefreshAiMatch = pathname.match(/^\/api\/teacher\/exams\/([^/]+)\/refresh-ai$/);
+      if (method === 'POST' && examRefreshAiMatch) {
+        const id = decodeURIComponent(examRefreshAiMatch[1]);
+        const target = store.data.exams.find((e) => e.id === id);
+        if (!target) {
+          return sendJson(res, 404, { error: 'Exam not found.' });
+        }
+        const out = await ensureDailyAiPoolForExam(id, { forceFresh: true });
+        const refreshed = store.listExamsTeacher().find((e) => e.id === id);
+        return sendJson(res, 200, { ok: true, generatedCount: out.generatedCount || 0, exam: refreshed });
       }
 
       const examMatch = pathname.match(/^\/api\/teacher\/exams\/([^/]+)$/);

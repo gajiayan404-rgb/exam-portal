@@ -407,6 +407,7 @@
                 <span class="badge badge-primary">${exam.questionCount} MCQs${exam.poolCount && exam.poolCount > exam.questionCount ? ` (from ${exam.poolCount} pool)` : ''}</span>
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
                 <span class="badge badge-neutral">⏱ ${exam.durationMinutes} mins</span>
+                ${exam.aiAutoGenerate !== false ? `<span class="badge ${exam.todaysAiPoolCount > 0 ? 'badge-success' : 'badge-warning'}">🤖 Cent-AI Today: ${exam.todaysAiPoolCount || 0} MCQs</span>` : ''}
                 ${exam.rotateDailyPool !== false ? `<span class="badge badge-success">🔀 Unique / Daily Fresh</span>` : (exam.shuffleQuestions !== false ? `<span class="badge badge-neutral">🔀 Shuffled</span>` : '')}
                 ${exam.speedModeSeconds > 0 ? `<span class="badge badge-warning">⚡ ${exam.speedModeSeconds}s/Q</span>` : ''}
                 ${exam.proctorTabSwitch !== false ? `<span class="badge badge-primary">🛡️ ${exam.maxTabViolations === 1 ? 'Auto-Submit on Tab/App Switch' : exam.maxTabViolations > 1 ? `Proctored (${exam.maxTabViolations} strikes)` : 'Proctored (Warn)'}</span>` : ''}
@@ -415,6 +416,9 @@
               </div>
             </div>
             <div class="flex-row">
+              <button type="button" class="btn btn-sm btn-soft-primary refresh-exam-ai-btn" data-id="${escapeHtml(exam.id)}" title="Generate fresh AI questions right now via Cent-AI API">
+                ✨ Fresh AI
+              </button>
               <button type="button" class="btn btn-sm ${exam.isLocked ? 'btn-success' : 'btn-warning'} toggle-lock-btn" data-id="${escapeHtml(exam.id)}" data-locked="${exam.isLocked ? '1' : '0'}">
                 ${exam.isLocked ? '🔓 Unlock Exam' : '🔒 Lock Exam'}
               </button>
@@ -436,9 +440,35 @@
       `;
     }).join('');
 
+    listEl.querySelectorAll('.refresh-exam-ai-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ Generating AI...';
+        try {
+          const res = await apiFetch(`/api/teacher/exams/${encodeURIComponent(btn.dataset.id)}/refresh-ai`, {
+            method: 'POST',
+            auth: true,
+            body: {}
+          });
+          showToast(`✨ Generated ${res.generatedCount || 0} fresh MCQs from Cent-AI API!`, 'success');
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = origText;
+        }
+      });
+    });
+
     listEl.querySelectorAll('.toggle-lock-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const currentlyLocked = btn.dataset.locked === '1';
+        const origText = btn.textContent;
+        btn.disabled = true;
+        if (currentlyLocked) {
+          btn.textContent = '⏳ Preparing AI & Unlocking...';
+        }
         try {
           await apiFetch(`/api/teacher/exams/${encodeURIComponent(btn.dataset.id)}/lock`, {
             method: 'PATCH',
@@ -447,13 +477,15 @@
           });
           showToast(
             currentlyLocked
-              ? '🔓 Exam UNLOCKED! Students can now start the exam.'
+              ? '🔓 Exam UNLOCKED with fresh Cent-AI questions! Students can start.'
               : '🔒 Exam LOCKED! Waiting for Sir to unlock.',
             currentlyLocked ? 'success' : 'info'
           );
           await loadBootstrap();
         } catch (err) {
           showToast(err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = origText;
         }
       });
     });
@@ -552,6 +584,7 @@
       isLocked: document.getElementById('exam-locked-check').checked,
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
       rotateDailyPool: document.getElementById('exam-rotate-daily-check').checked,
+      aiAutoGenerate: document.getElementById('exam-ai-auto-check').checked,
       showResultsImmediately: document.getElementById('exam-show-results-check').checked,
       allowRetake: document.getElementById('exam-retake-check').checked,
       proctorTabSwitch: document.getElementById('exam-proctor-tab-check').checked,
@@ -599,6 +632,7 @@
       if (d.isLocked !== undefined) document.getElementById('exam-locked-check').checked = Boolean(d.isLocked);
       if (d.shuffleQuestions !== undefined) document.getElementById('exam-shuffle-check').checked = Boolean(d.shuffleQuestions);
       if (d.rotateDailyPool !== undefined) document.getElementById('exam-rotate-daily-check').checked = Boolean(d.rotateDailyPool);
+      if (d.aiAutoGenerate !== undefined) document.getElementById('exam-ai-auto-check').checked = Boolean(d.aiAutoGenerate);
       if (d.showResultsImmediately !== undefined) document.getElementById('exam-show-results-check').checked = Boolean(d.showResultsImmediately);
       if (d.allowRetake !== undefined) document.getElementById('exam-retake-check').checked = Boolean(d.allowRetake);
       if (d.proctorTabSwitch !== undefined) document.getElementById('exam-proctor-tab-check').checked = Boolean(d.proctorTabSwitch);
@@ -834,6 +868,7 @@
     document.getElementById('exam-locked-check').checked = true;
     document.getElementById('exam-shuffle-check').checked = true;
     document.getElementById('exam-rotate-daily-check').checked = true;
+    document.getElementById('exam-ai-auto-check').checked = true;
     document.getElementById('exam-show-results-check').checked = true;
     document.getElementById('exam-retake-check').checked = true;
     document.getElementById('exam-proctor-tab-check').checked = true;
@@ -863,6 +898,7 @@
     document.getElementById('exam-locked-check').checked = Boolean(exam.isLocked);
     document.getElementById('exam-shuffle-check').checked = exam.shuffleQuestions !== false;
     document.getElementById('exam-rotate-daily-check').checked = exam.rotateDailyPool !== false;
+    document.getElementById('exam-ai-auto-check').checked = exam.aiAutoGenerate !== false;
     document.getElementById('exam-show-results-check').checked = exam.showResultsImmediately !== false;
     document.getElementById('exam-retake-check').checked = exam.allowRetake !== false;
     document.getElementById('exam-proctor-tab-check').checked = exam.proctorTabSwitch !== false;
@@ -894,7 +930,7 @@
   [
     'exam-desc-input', 'exam-duration-input', 'exam-neg-input', 'exam-pass-input',
     'exam-speed-input', 'exam-max-violations-input', 'exam-live-check', 'exam-locked-check', 'exam-shuffle-check',
-    'exam-rotate-daily-check', 'exam-show-results-check', 'exam-retake-check', 'exam-proctor-tab-check',
+    'exam-rotate-daily-check', 'exam-ai-auto-check', 'exam-show-results-check', 'exam-retake-check', 'exam-proctor-tab-check',
     'exam-block-copy-check', 'exam-fullscreen-check'
   ].forEach((id) => {
     const el = document.getElementById(id);
@@ -1316,6 +1352,7 @@
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
       shuffleOptions: document.getElementById('exam-shuffle-check').checked,
       rotateDailyPool: document.getElementById('exam-rotate-daily-check').checked,
+      aiAutoGenerate: document.getElementById('exam-ai-auto-check').checked,
       showResultsImmediately: document.getElementById('exam-show-results-check').checked,
       allowRetake: document.getElementById('exam-retake-check').checked,
       proctorTabSwitch: document.getElementById('exam-proctor-tab-check').checked,

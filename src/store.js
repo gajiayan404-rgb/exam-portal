@@ -3,7 +3,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { DEFAULT_SUBJECTS, SEED_QUESTIONS } = require('./seedQuestions');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.CODEAURA_DATA_DIR
+  ? path.resolve(process.env.CODEAURA_DATA_DIR)
+  : path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
 
 function createInitialStore() {
@@ -568,6 +570,11 @@ class ExamStore {
     const submissionsCount = this.data.submissions.filter((s) => s.examId === exam.id).length;
     const rawPerStu = Number(exam.questionsPerStudent) || 0;
     const serveCount = rawPerStu > 0 && rawPerStu < validQuestions.length ? rawPerStu : validQuestions.length;
+    const todayKey = getLocalDateKey();
+    const subjIdsSet = new Set(validQuestions.map((q) => q.subjectId));
+    const todaysAiPoolCount = this.data.questions.filter(
+      (q) => subjIdsSet.has(q.subjectId) && q.isAiGenerated && String(q.createdAt || '').startsWith(todayKey)
+    ).length;
 
     return {
       ...exam,
@@ -578,6 +585,8 @@ class ExamStore {
       shuffleQuestions: exam.shuffleQuestions !== false,
       shuffleOptions: exam.shuffleOptions !== undefined ? Boolean(exam.shuffleOptions) : (exam.shuffleQuestions !== false),
       rotateDailyPool: exam.rotateDailyPool !== false,
+      aiAutoGenerate: exam.aiAutoGenerate !== false,
+      todaysAiPoolCount,
       isLocked: Boolean(exam.isLocked),
       totalMarks: Number((serveCount * (Number(exam.marksPerQuestion) || 1)).toFixed(2)),
       subjectBreakdown: Object.values(subjectBreakdown),
@@ -624,6 +633,7 @@ class ExamStore {
     const shuffleQuestions = payload.shuffleQuestions !== undefined ? Boolean(payload.shuffleQuestions) : true;
     const shuffleOptions = payload.shuffleOptions !== undefined ? Boolean(payload.shuffleOptions) : shuffleQuestions;
     const rotateDailyPool = payload.rotateDailyPool !== undefined ? Boolean(payload.rotateDailyPool) : true;
+    const aiAutoGenerate = payload.aiAutoGenerate !== undefined ? Boolean(payload.aiAutoGenerate) : true;
     const rawPerStu = Number(payload.questionsPerStudent);
     const questionsPerStudent = Number.isFinite(rawPerStu) && rawPerStu > 0
       ? Math.max(1, Math.min(200, Math.round(rawPerStu)))
@@ -648,6 +658,7 @@ class ExamStore {
         shuffleQuestions,
         shuffleOptions,
         rotateDailyPool,
+        aiAutoGenerate,
         questionsPerStudent,
         showResultsImmediately: payload.showResultsImmediately !== false,
         allowRetake: payload.allowRetake !== false,
@@ -677,6 +688,7 @@ class ExamStore {
       shuffleQuestions,
       shuffleOptions,
       rotateDailyPool,
+      aiAutoGenerate,
       questionsPerStudent,
       showResultsImmediately: payload.showResultsImmediately !== false,
       allowRetake: payload.allowRetake !== false,
@@ -763,6 +775,104 @@ class ExamStore {
       });
   }
 
+  getExamAiPoolStatus(examId, { dateKey, forceFresh = false } = {}) {
+    const exam = this.data.exams.find((e) => e.id === examId);
+    if (!exam) return null;
+
+    const todayKey = dateKey || getLocalDateKey();
+    const qMap = new Map(this.data.questions.map((q) => [q.id, q]));
+    const selectedQs = exam.questionIds.map((id) => qMap.get(id)).filter(Boolean);
+    const rawPerStu = Number(exam.questionsPerStudent) || 0;
+    const serveCount = rawPerStu > 0 && rawPerStu < selectedQs.length ? rawPerStu : selectedQs.length;
+
+    const subjCounts = new Map();
+    for (const q of selectedQs) {
+      subjCounts.set(q.subjectId, (subjCounts.get(q.subjectId) || 0) + 1);
+    }
+
+    const deficits = [];
+    let allReady = true;
+    const entries = [...subjCounts.entries()];
+    let allocated = 0;
+
+    entries.forEach(([sid, origCount], idx) => {
+      let need = idx === entries.length - 1
+        ? serveCount - allocated
+        : Math.max(1, Math.round((origCount / Math.max(1, selectedQs.length)) * serveCount));
+      need = Math.max(0, Math.min(serveCount - allocated, need));
+      allocated += need;
+      if (need <= 0) return;
+
+      const todaysAi = this.data.questions.filter(
+        (q) => q.subjectId === sid && q.isAiGenerated && String(q.createdAt || '').startsWith(todayKey)
+      );
+      const targetToday = Math.min(40, Math.max(need + 6, Math.ceil(need * 1.5)));
+      if (todaysAi.length < need) allReady = false;
+      const missing = forceFresh
+        ? Math.min(20, Math.max(need + 6, Math.ceil(need * 1.5)))
+        : Math.max(0, targetToday - todaysAi.length);
+      if (missing > 0) {
+        deficits.push({ subjectId: sid, needCount: need, existingTodayCount: todaysAi.length, generateCount: missing });
+      }
+    });
+
+    return {
+      examId: exam.id,
+      todayKey,
+      ready: allReady && !forceFresh,
+      deficits
+    };
+  }
+
+  applyFreshAiToExam(examId, { dateKey } = {}) {
+    const exam = this.data.exams.find((e) => e.id === examId);
+    if (!exam) return null;
+
+    const todayKey = dateKey || getLocalDateKey();
+    const qMap = new Map(this.data.questions.map((q) => [q.id, q]));
+    const updatedIds = [];
+    const usedIds = new Set();
+
+    // Group today's fresh AI questions per subject (newest first because bulkAddQuestions unshifts)
+    const freshBySubj = new Map();
+    for (const q of this.data.questions) {
+      if (q.isAiGenerated && String(q.createdAt || '').startsWith(todayKey)) {
+        if (!freshBySubj.has(q.subjectId)) freshBySubj.set(q.subjectId, []);
+        freshBySubj.get(q.subjectId).push(q.id);
+      }
+    }
+
+    for (const oldId of exam.questionIds) {
+      const oldQ = qMap.get(oldId);
+      if (!oldQ) continue;
+      // Preserve custom/today's AI questions; swap out old static seed or stale questions with fresh today's AI
+      if (oldQ.isCustom && !oldQ.isAiGenerated) {
+        if (!usedIds.has(oldQ.id)) {
+          usedIds.add(oldQ.id);
+          updatedIds.push(oldQ.id);
+        }
+        continue;
+      }
+      const candidates = freshBySubj.get(oldQ.subjectId) || [];
+      const freshId = candidates.find((cid) => !usedIds.has(cid));
+      if (freshId) {
+        usedIds.add(freshId);
+        updatedIds.push(freshId);
+      } else if (candidates.length === 0 && !usedIds.has(oldQ.id)) {
+        // Only retain previous non-custom question if no fresh AI batch exists for this subject
+        usedIds.add(oldQ.id);
+        updatedIds.push(oldQ.id);
+      }
+    }
+
+    if (updatedIds.length > 0) {
+      exam.questionIds = updatedIds;
+      exam.updatedAt = new Date().toISOString();
+      this.save();
+    }
+    return this._enrichExamSummary(exam);
+  }
+
   _selectQuestionsForStudent(exam, rollNumber, todayKey) {
     const qMap = new Map(this.data.questions.map((q) => [q.id, q]));
     const selectedQs = exam.questionIds.map((id) => qMap.get(id)).filter(Boolean);
@@ -793,6 +903,8 @@ class ExamStore {
     const dayIndex = Number.isFinite(dayMs) ? Math.floor(dayMs / 86400000) : 0;
     const useExplicitSubset = rawPerStu > 0 && rawPerStu < selectedQs.length;
     const useDailyBankRotation = !useExplicitSubset && exam.rotateDailyPool !== false;
+    const aiEnabled = Boolean(this.data.settings?.ai?.enabled && this.data.settings?.ai?.apiKey);
+    const preferAiOnly = exam.aiAutoGenerate !== false && aiEnabled;
 
     const chosen = [];
     const chosenIds = new Set();
@@ -802,7 +914,18 @@ class ExamStore {
       const explicitPool = selectedQs.filter((q) => q.subjectId === sid);
       let pool = explicitPool;
 
-      if (useDailyBankRotation) {
+      if (preferAiOnly && !useExplicitSubset) {
+        const aiAndCustom = this.data.questions.filter((q) => q.subjectId === sid && (q.isAiGenerated || q.isCustom));
+        const todaysAi = aiAndCustom.filter((q) => q.isAiGenerated && String(q.createdAt || '').startsWith(todayKey));
+        if (todaysAi.length >= take) {
+          pool = todaysAi;
+        } else if (aiAndCustom.length >= take) {
+          pool = aiAndCustom;
+        } else if (useDailyBankRotation) {
+          const bankForSubj = this.data.questions.filter((q) => q.subjectId === sid);
+          if (bankForSubj.length > take) pool = bankForSubj;
+        }
+      } else if (useDailyBankRotation) {
         const bankForSubj = this.data.questions.filter((q) => q.subjectId === sid);
         if (bankForSubj.length > take) {
           pool = bankForSubj;
@@ -1228,5 +1351,6 @@ class ExamStore {
 
 module.exports = {
   ExamStore,
-  STORE_PATH
+  STORE_PATH,
+  getLocalDateKey
 };
