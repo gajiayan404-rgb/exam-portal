@@ -2,18 +2,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const PAGE_W = 595.28; // A4 width in pt
-const PAGE_H = 841.89; // A4 height in pt
-const MARGIN_X = 36;
+const PAGE_W = 595.28; // A4 portrait width in pt
+const PAGE_H = 841.89; // A4 portrait height in pt
+const MARGIN_X = 40;
 const CONTENT_W = PAGE_W - MARGIN_X * 2;
-const TOP_MARGIN_P1 = 28;
+const TOP_MARGIN_P1 = 30;
 const TOP_MARGIN_NEXT = 54;
 const BOTTOM_LIMIT = PAGE_H - 48;
 
 const DEFAULT_LOGO_PATH = path.join(__dirname, '..', 'public', 'assets', 'codeaura-logo.jpg');
 let cachedLogo = null;
 
-// Standard Adobe AFM widths (in 1/1000 em) for ASCII 32..126
+// Standard Adobe AFM widths (1/1000 em) for ASCII 32..126
 const HELVETICA_WIDTHS = [
   278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
   556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
@@ -71,26 +71,23 @@ function toWinAnsiBytes(str) {
     } else if (code === 0x0A) {
       bytes.push(0x20);
     } else {
-      bytes.push(0x3F); // '?' fallback for unencodable glyphs
+      bytes.push(0x3F);
     }
   }
   return bytes;
 }
 
 function toPdfHexString(str) {
-  const bytes = toWinAnsiBytes(str);
-  return `<${Buffer.from(bytes).toString('hex').toUpperCase()}>`;
+  return `<${Buffer.from(toWinAnsiBytes(str)).toString('hex').toUpperCase()}>`;
 }
 
 function getGlyphWidthUnits(byte, fontKey) {
   if (fontKey === 'F3' || fontKey === 'F4') return 600;
   const widths = fontKey === 'F2' ? HELVETICA_BOLD_WIDTHS : HELVETICA_WIDTHS;
-  if (byte >= 32 && byte <= 126) {
-    return widths[byte - 32];
-  }
-  if (byte === 0x95) return 350; // bullet
-  if (byte === 0x96 || byte === 0x97) return fontKey === 'F2' ? 556 : 556; // en/em dash
-  if (byte === 0x85) return 1000; // ellipsis
+  if (byte >= 32 && byte <= 126) return widths[byte - 32];
+  if (byte === 0x95) return 350;
+  if (byte === 0x96 || byte === 0x97) return 556;
+  if (byte === 0x85) return 1000;
   return 556;
 }
 
@@ -136,7 +133,6 @@ function wrapText(text, maxWidth, fontKey = 'F1', fontSize = 10) {
       if (measureTextWidth(word, fontKey, fontSize) <= maxWidth) {
         current = word;
       } else {
-        // Hard-break ultra-long tokens (URLs, minified identifiers)
         let chunk = '';
         for (const ch of word) {
           if (measureTextWidth(chunk + ch, fontKey, fontSize) > maxWidth && chunk) {
@@ -174,8 +170,8 @@ function rgbStr(color) {
 }
 
 function parseHexColor(hex) {
-  const clean = String(hex || '#0F766E').replace('#', '').trim();
-  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return [0.059, 0.463, 0.431];
+  const clean = String(hex || '#1E293B').replace('#', '').trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return [0.118, 0.161, 0.231];
   return [
     parseInt(clean.slice(0, 2), 16) / 255,
     parseInt(clean.slice(2, 4), 16) / 255,
@@ -183,33 +179,20 @@ function parseHexColor(hex) {
   ];
 }
 
+// Restrained institutional monochrome + slate palette
 const C = {
-  teal: parseHexColor('#0F766E'),
-  tealDark: parseHexColor('#134E4A'),
-  tealSoft: parseHexColor('#F0FDFA'),
-  tealBorder: parseHexColor('#99F6E4'),
-  orange: parseHexColor('#F97316'),
-  cream: parseHexColor('#FFF8EC'),
-  creamBorder: parseHexColor('#FDE68A'),
   ink: parseHexColor('#0F172A'),
+  slateDark: parseHexColor('#1E293B'),
   muted: parseHexColor('#475569'),
   subtle: parseHexColor('#64748B'),
   border: parseHexColor('#E2E8F0'),
   borderStrong: parseHexColor('#CBD5E1'),
   surface: parseHexColor('#F8FAFC'),
   surfaceAlt: parseHexColor('#F1F5F9'),
+  cream: parseHexColor('#FFF8EC'),
   white: [1, 1, 1],
-  green: parseHexColor('#059669'),
-  greenSoft: parseHexColor('#ECFDF5'),
-  greenBorder: parseHexColor('#A7F3D0'),
-  red: parseHexColor('#DC2626'),
-  redSoft: parseHexColor('#FEF2F2'),
-  redBorder: parseHexColor('#FECACA'),
-  amber: parseHexColor('#B45309'),
-  amberSoft: parseHexColor('#FFFBEB'),
-  amberBorder: parseHexColor('#FDE68A'),
-  codeBg: parseHexColor('#0F172A'),
-  codeText: parseHexColor('#E2E8F0')
+  passText: parseHexColor('#15803D'),
+  failText: parseHexColor('#B91C1C')
 };
 
 function parseJpegInfo(buffer) {
@@ -222,9 +205,7 @@ function parseJpegInfo(buffer) {
       offset += 1;
       continue;
     }
-    while (offset < buffer.length && buffer[offset] === 0xFF) {
-      offset += 1;
-    }
+    while (offset < buffer.length && buffer[offset] === 0xFF) offset += 1;
     if (offset >= buffer.length) break;
     const marker = buffer[offset];
     offset += 1;
@@ -243,11 +224,13 @@ function parseJpegInfo(buffer) {
       (marker >= 0xCD && marker <= 0xCF)
     ) {
       if (segLen >= 8) {
-        const bitsPerComponent = buffer[offset + 2];
-        const height = buffer.readUInt16BE(offset + 3);
-        const width = buffer.readUInt16BE(offset + 5);
-        const components = buffer[offset + 7];
-        return { bytes: buffer, width, height, components, bitsPerComponent };
+        return {
+          bytes: buffer,
+          bitsPerComponent: buffer[offset + 2],
+          height: buffer.readUInt16BE(offset + 3),
+          width: buffer.readUInt16BE(offset + 5),
+          components: buffer[offset + 7]
+        };
       }
     }
     offset += segLen;
@@ -305,18 +288,13 @@ class PdfDocumentBuilder {
 
   drawRect(x, y, w, h, { fill = null, stroke = null, lineWidth = 0.75 } = {}) {
     if (!fill && !stroke) return;
-    const bx = x.toFixed(2);
-    const by = this.py(y + h).toFixed(2);
-    const bw = w.toFixed(2);
-    const bh = h.toFixed(2);
-
     const ops = ['q'];
     if (fill) ops.push(`${rgbStr(fill)} rg`);
     if (stroke) {
       ops.push(`${rgbStr(stroke)} RG`);
       ops.push(`${lineWidth.toFixed(2)} w`);
     }
-    ops.push(`${bx} ${by} ${bw} ${bh} re`);
+    ops.push(`${x.toFixed(2)} ${this.py(y + h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re`);
     if (fill && stroke) ops.push('B');
     else if (fill) ops.push('f');
     else ops.push('S');
@@ -337,7 +315,7 @@ class PdfDocumentBuilder {
     const yTop = this.py(y);
     const k = 0.55228475 * rad;
 
-    const pathOps = [
+    this.pushOp([
       'q',
       ...(fill ? [`${rgbStr(fill)} rg`] : []),
       ...(stroke ? [`${rgbStr(stroke)} RG`, `${lineWidth.toFixed(2)} w`] : []),
@@ -353,8 +331,7 @@ class PdfDocumentBuilder {
       'h',
       fill && stroke ? 'B' : fill ? 'f' : 'S',
       'Q'
-    ];
-    this.pushOp(pathOps.join('\n'));
+    ].join('\n'));
   }
 
   drawLine(x1, y1, x2, y2, color = C.border, lineWidth = 0.75) {
@@ -364,57 +341,6 @@ class PdfDocumentBuilder {
       `${lineWidth.toFixed(2)} w`,
       `${x1.toFixed(2)} ${this.py(y1).toFixed(2)} m`,
       `${x2.toFixed(2)} ${this.py(y2).toFixed(2)} l`,
-      'S',
-      'Q'
-    ].join('\n'));
-  }
-
-  drawCircle(cx, cy, r, { fill = null, stroke = null, lineWidth = 0.75 } = {}) {
-    const k = 0.55228475 * r;
-    const py = this.py(cy);
-    const ops = [
-      'q',
-      ...(fill ? [`${rgbStr(fill)} rg`] : []),
-      ...(stroke ? [`${rgbStr(stroke)} RG`, `${lineWidth.toFixed(2)} w`] : []),
-      `${(cx + r).toFixed(2)} ${py.toFixed(2)} m`,
-      `${(cx + r).toFixed(2)} ${(py + k).toFixed(2)} ${(cx + k).toFixed(2)} ${(py + r).toFixed(2)} ${cx.toFixed(2)} ${(py + r).toFixed(2)} c`,
-      `${(cx - k).toFixed(2)} ${(py + r).toFixed(2)} ${(cx - r).toFixed(2)} ${(py + k).toFixed(2)} ${(cx - r).toFixed(2)} ${py.toFixed(2)} c`,
-      `${(cx - r).toFixed(2)} ${(py - k).toFixed(2)} ${(cx - k).toFixed(2)} ${(py - r).toFixed(2)} ${cx.toFixed(2)} ${(py - r).toFixed(2)} c`,
-      `${(cx + k).toFixed(2)} ${(py - r).toFixed(2)} ${(cx + r).toFixed(2)} ${(py - k).toFixed(2)} ${(cx + r).toFixed(2)} ${py.toFixed(2)} c`,
-      'h',
-      fill && stroke ? 'B' : fill ? 'f' : 'S',
-      'Q'
-    ];
-    this.pushOp(ops.join('\n'));
-  }
-
-  drawCheckVector(cx, cy, size, color = C.green) {
-    const s = size / 2;
-    this.pushOp([
-      'q',
-      `${rgbStr(color)} RG`,
-      '1.60 w',
-      '1 J',
-      '1 j',
-      `${(cx - s * 0.72).toFixed(2)} ${this.py(cy).toFixed(2)} m`,
-      `${(cx - s * 0.15).toFixed(2)} ${this.py(cy + s * 0.58).toFixed(2)} l`,
-      `${(cx + s * 0.78).toFixed(2)} ${this.py(cy - s * 0.55).toFixed(2)} l`,
-      'S',
-      'Q'
-    ].join('\n'));
-  }
-
-  drawCrossVector(cx, cy, size, color = C.red) {
-    const s = size * 0.38;
-    this.pushOp([
-      'q',
-      `${rgbStr(color)} RG`,
-      '1.50 w',
-      '1 J',
-      `${(cx - s).toFixed(2)} ${this.py(cy - s).toFixed(2)} m`,
-      `${(cx + s).toFixed(2)} ${this.py(cy + s).toFixed(2)} l`,
-      `${(cx + s).toFixed(2)} ${this.py(cy - s).toFixed(2)} m`,
-      `${(cx - s).toFixed(2)} ${this.py(cy + s).toFixed(2)} l`,
       'S',
       'Q'
     ].join('\n'));
@@ -468,25 +394,23 @@ class PdfDocumentBuilder {
       const origOps = this.pages[i] || [];
       this.currentOps = [];
 
-      // Running slim header on Page 2+
+      // Running clean monochrome header on Page 2+
       if (i > 0) {
-        this.drawRect(MARGIN_X, 18, CONTENT_W * 0.72, 2.2, { fill: C.teal });
-        this.drawRect(MARGIN_X + CONTENT_W * 0.72, 18, CONTENT_W * 0.28, 2.2, { fill: C.orange });
-        this.drawText(`${instituteName}  •  Exam Score Report`, MARGIN_X, 33, { font: 'F2', size: 8.5, color: C.tealDark });
+        this.drawText(`${instituteName}  —  Exam Score Report`, MARGIN_X, 31, { font: 'F2', size: 8.5, color: C.slateDark });
         this.drawText(
           truncateText(`${studentLabel}  •  ${examTitle}`, 265, 'F1', 8.5),
           MARGIN_X + CONTENT_W,
-          33,
+          31,
           { font: 'F1', size: 8.5, color: C.muted, align: 'right' }
         );
-        this.drawLine(MARGIN_X, 40, MARGIN_X + CONTENT_W, 40, C.border, 0.7);
+        this.drawLine(MARGIN_X, 38, MARGIN_X + CONTENT_W, 38, C.borderStrong, 0.75);
       }
 
-      // Consistent professional footer on every page
+      // Consistent clean footer on every page
       const footerRuleY = PAGE_H - 36;
-      this.drawLine(MARGIN_X, footerRuleY, MARGIN_X + CONTENT_W, footerRuleY, C.border, 0.75);
+      this.drawLine(MARGIN_X, footerRuleY, MARGIN_X + CONTENT_W, footerRuleY, C.borderStrong, 0.7);
       this.drawText(
-        `${instituteName}  •  Official Auto-Graded Exam Score Report`,
+        `${instituteName}  •  Official Exam Score Report`,
         MARGIN_X,
         PAGE_H - 22,
         { font: 'F1', size: 8, color: C.subtle }
@@ -498,21 +422,19 @@ class PdfDocumentBuilder {
         { font: 'F2', size: 8, color: C.muted, align: 'right' }
       );
 
-      const combinedStream = [...this.currentOps, ...origOps].join('\n');
-      finalizedStreams.push(combinedStream);
+      finalizedStreams.push([...this.currentOps, ...origOps].join('\n'));
     }
 
-    // Build PDF objects deterministically
     const objects = [];
     const addObj = (bodyBufOrStr) => {
       objects.push(Buffer.isBuffer(bodyBufOrStr) ? bodyBufOrStr : Buffer.from(bodyBufOrStr, 'latin1'));
-      return objects.length; // 1-based object number
+      return objects.length;
     };
 
     const catalogNum = 1;
     const pagesNum = 2;
-    addObj(''); // placeholder 1
-    addObj(''); // placeholder 2
+    addObj('');
+    addObj('');
 
     const f1 = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     const f2 = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
@@ -631,17 +553,15 @@ function buildPdfFilename(submission) {
   return `CodeAura-Score-Report-${roll}-${name}-${exam}.pdf`;
 }
 
-function drawSectionHeading(doc, title, badgeText = '') {
+function drawSectionHeading(doc, title, subtitle = '') {
   doc.ensureSpace(28);
   const y = doc.y;
-  doc.drawRoundedRect(MARGIN_X, y + 1, 4, 14, 2, { fill: C.teal });
-  doc.drawText(title, MARGIN_X + 11, y + 12, { font: 'F2', size: 11.5, color: C.ink });
-  if (badgeText) {
-    const bw = measureTextWidth(badgeText, 'F2', 8) + 14;
-    doc.drawRoundedRect(MARGIN_X + CONTENT_W - bw, y, bw, 16, 8, { fill: C.tealSoft, stroke: C.tealBorder, lineWidth: 0.7 });
-    doc.drawText(badgeText, MARGIN_X + CONTENT_W - bw / 2, y + 10.8, { font: 'F2', size: 8, color: C.tealDark, align: 'center' });
+  doc.drawText(title, MARGIN_X, y + 11, { font: 'F2', size: 11, color: C.ink });
+  if (subtitle) {
+    doc.drawText(subtitle, MARGIN_X + CONTENT_W, y + 11, { font: 'F1', size: 8.5, color: C.subtle, align: 'right' });
   }
-  doc.y += 22;
+  doc.drawLine(MARGIN_X, y + 17, MARGIN_X + CONTENT_W, y + 17, C.borderStrong, 0.8);
+  doc.y += 24;
 }
 
 function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroom', teacherName = 'Sir' }) {
@@ -652,254 +572,147 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
   const inst = String(instituteName || 'CodeAura Classroom').trim() || 'CodeAura Classroom';
   const passed = Boolean(submission.passed);
   const statusLabel = passed ? 'PASSED' : 'NEEDS PRACTICE';
-  const statusColor = passed ? C.green : C.red;
-  const statusSoft = passed ? C.greenSoft : C.redSoft;
-  const statusBorder = passed ? C.greenBorder : C.redBorder;
+  const statusColor = passed ? C.passText : C.failText;
 
-  // 1. Top Dual-Color Brand Bar (Teal + Orange matching CodeAura Logo)
-  doc.drawRect(MARGIN_X, doc.y, CONTENT_W * 0.72, 4, { fill: C.teal });
-  doc.drawRect(MARGIN_X + CONTENT_W * 0.72, doc.y, CONTENT_W * 0.28, 4, { fill: C.orange });
-  doc.y += 8;
+  // 1. Clean Top Executive Letterhead (White background, single slate hairline, CodeAura logo + compact Score Box)
+  doc.drawLine(MARGIN_X, doc.y, MARGIN_X + CONTENT_W, doc.y, C.slateDark, 1.8);
+  doc.y += 10;
 
-  // 2. Official Letterhead Card with Embedded CodeAura Logo
-  const headerH = 82;
-  doc.drawRoundedRect(MARGIN_X, doc.y, CONTENT_W, headerH, 8, { fill: C.white, stroke: C.border, lineWidth: 0.9 });
-
-  const logoBoxX = MARGIN_X + 10;
-  const logoBoxY = doc.y + 8;
-  const logoBoxW = 118;
-  const logoBoxH = 66;
-  doc.drawRoundedRect(logoBoxX, logoBoxY, logoBoxW, logoBoxH, 7, { fill: C.cream, stroke: C.creamBorder, lineWidth: 0.8 });
+  const headerH = 72;
+  const logoW = 108;
+  const logoH = 62;
+  doc.drawRoundedRect(MARGIN_X, doc.y + 4, logoW, logoH, 5, { fill: C.cream, stroke: C.border, lineWidth: 0.7 });
 
   if (logoAsset) {
     const pad = 2;
-    const maxW = logoBoxW - pad * 2;
-    const maxH = logoBoxH - pad * 2;
-    const scale = Math.min(maxW / logoAsset.width, maxH / logoAsset.height);
+    const scale = Math.min((logoW - pad * 2) / logoAsset.width, (logoH - pad * 2) / logoAsset.height);
     const dw = logoAsset.width * scale;
     const dh = logoAsset.height * scale;
     doc.drawImage(
       'Im1',
-      logoBoxX + (logoBoxW - dw) / 2,
-      logoBoxY + (logoBoxH - dh) / 2,
+      MARGIN_X + (logoW - dw) / 2,
+      doc.y + 4 + (logoH - dh) / 2,
       dw,
       dh
     );
   } else {
-    doc.drawText('</> CodeAura', logoBoxX + logoBoxW / 2, logoBoxY + 36, { font: 'F2', size: 12, color: C.tealDark, align: 'center' });
+    doc.drawText('</> CodeAura', MARGIN_X + logoW / 2, doc.y + 39, { font: 'F2', size: 11, color: C.ink, align: 'center' });
   }
 
-  const textStartX = logoBoxX + logoBoxW + 14;
-  const statusPillW = 110;
-  const titleMaxW = CONTENT_W - (textStartX - MARGIN_X) - statusPillW - 18;
-
-  doc.drawText(inst.toUpperCase(), textStartX, doc.y + 22, { font: 'F2', size: 8.5, color: C.teal });
-  doc.drawText(truncateText('Official Exam Score Report', titleMaxW, 'F2', 16), textStartX, doc.y + 41, {
+  const scoreBoxW = 132;
+  const scoreBoxH = 62;
+  const scoreBoxX = MARGIN_X + CONTENT_W - scoreBoxW;
+  const scoreBoxY = doc.y + 4;
+  doc.drawRoundedRect(scoreBoxX, scoreBoxY, scoreBoxW, scoreBoxH, 5, { fill: C.surface, stroke: C.borderStrong, lineWidth: 0.8 });
+  doc.drawText('SCORE OBTAINED', scoreBoxX + scoreBoxW / 2, scoreBoxY + 15, { font: 'F2', size: 7.5, color: C.subtle, align: 'center' });
+  const scoreStr = `${submission.score ?? 0} / ${submission.totalMarks ?? 0}`;
+  const scoreFontSize = measureTextWidth(scoreStr, 'F2', 19) > scoreBoxW - 16 ? 15 : 19;
+  doc.drawText(scoreStr, scoreBoxX + scoreBoxW / 2, scoreBoxY + 37, { font: 'F2', size: scoreFontSize, color: C.ink, align: 'center' });
+  doc.drawText(`${submission.percentage ?? 0}%  •  ${statusLabel}`, scoreBoxX + scoreBoxW / 2, scoreBoxY + 53, {
     font: 'F2',
-    size: 16,
+    size: 8.2,
+    color: statusColor,
+    align: 'center'
+  });
+
+  const titleX = MARGIN_X + logoW + 14;
+  const titleMaxW = scoreBoxX - titleX - 14;
+  doc.drawText(inst.toUpperCase(), titleX, doc.y + 18, { font: 'F2', size: 8.5, color: C.muted });
+  doc.drawText(truncateText('Official Exam Score Report', titleMaxW, 'F2', 17), titleX, doc.y + 37, {
+    font: 'F2',
+    size: 17,
     color: C.ink
   });
   doc.drawText(
     truncateText(`Examiner: ${teacherName || 'Sir'}  •  Report ID: ${submission.id || 'N/A'}`, titleMaxW, 'F1', 8.5),
-    textStartX,
-    doc.y + 56,
+    titleX,
+    doc.y + 52,
     { font: 'F1', size: 8.5, color: C.muted }
   );
   doc.drawText(
-    `Submitted: ${formatReportDate(submission.submittedAt)}`,
-    textStartX,
-    doc.y + 69,
+    `Date: ${formatReportDate(submission.submittedAt)}  •  Pass Criteria: >= ${submission.passPercentage || 40}%`,
+    titleX,
+    doc.y + 64,
     { font: 'F1', size: 8, color: C.subtle }
   );
 
-  // Right status pill inside letterhead
-  const pillX = MARGIN_X + CONTENT_W - statusPillW - 12;
-  const pillY = doc.y + 18;
-  doc.drawRoundedRect(pillX, pillY, statusPillW, 24, 12, { fill: statusSoft, stroke: statusBorder, lineWidth: 1 });
-  if (passed) {
-    doc.drawCheckVector(pillX + 16, pillY + 12, 8, statusColor);
-  } else {
-    doc.drawCrossVector(pillX + 16, pillY + 12, 8, statusColor);
-  }
-  doc.drawText(statusLabel, pillX + 26 + (statusPillW - 30) / 2, pillY + 15.2, {
-    font: 'F2',
-    size: 8.8,
-    color: statusColor,
-    align: 'center'
-  });
-  doc.drawText(`Pass Mark: >= ${submission.passPercentage || 40}%`, pillX + statusPillW / 2, pillY + 37, {
-    font: 'F1',
-    size: 7.8,
-    color: C.subtle,
-    align: 'center'
-  });
+  doc.y += headerH + 6;
+  doc.drawLine(MARGIN_X, doc.y, MARGIN_X + CONTENT_W, doc.y, C.borderStrong, 0.8);
+  doc.y += 14;
 
-  doc.y += headerH + 12;
-
-  // 3. Candidate & Examination Metadata Grid
-  const metaH = 74;
-  doc.drawRoundedRect(MARGIN_X, doc.y, CONTENT_W, metaH, 7, { fill: C.surface, stroke: C.border, lineWidth: 0.8 });
+  // 2. Simple Candidate & Examination Details Grid
+  const metaH = 76;
+  doc.drawRoundedRect(MARGIN_X, doc.y, CONTENT_W, metaH, 5, { fill: C.white, stroke: C.borderStrong, lineWidth: 0.75 });
   doc.drawRect(MARGIN_X + 0.5, doc.y + 0.5, CONTENT_W - 1, 18, { fill: C.surfaceAlt });
-  doc.drawLine(MARGIN_X, doc.y + 18.5, MARGIN_X + CONTENT_W, doc.y + 18.5, C.border, 0.7);
-  doc.drawText('CANDIDATE & ASSESSMENT DETAILS', MARGIN_X + 10, doc.y + 12.5, { font: 'F2', size: 8, color: C.tealDark });
+  doc.drawLine(MARGIN_X, doc.y + 18.5, MARGIN_X + CONTENT_W, doc.y + 18.5, C.borderStrong, 0.65);
+  doc.drawText('CANDIDATE & EXAM DETAILS', MARGIN_X + 10, doc.y + 12.5, { font: 'F2', size: 8, color: C.slateDark });
 
   const col1X = MARGIN_X + 10;
   const col2X = MARGIN_X + CONTENT_W * 0.57;
-  const valOffset1 = 74;
-  const valOffset2 = 68;
-  const maxValW1 = CONTENT_W * 0.57 - 16 - valOffset1;
-  const maxValW2 = CONTENT_W * 0.43 - 16 - valOffset2;
+  const lblW1 = 74;
+  const lblW2 = 66;
+  const maxW1 = CONTENT_W * 0.57 - 16 - lblW1;
+  const maxW2 = CONTENT_W * 0.43 - 16 - lblW2;
 
   const metaRows = [
     ['Student Name:', submission.studentName || 'N/A', 'Roll Number:', submission.rollNumber || 'N/A'],
     ['Examination:', submission.examTitle || 'Exam', 'Batch / Div:', submission.batch || 'General'],
-    ['Student Email:', submission.studentEmail || 'Not Provided', 'Total MCQs:', `${submission.totalQuestions || 0} Questions`]
+    ['Student Email:', submission.studentEmail || 'Not Provided', 'Time Taken:', formatDuration(submission.timeTakenSeconds)]
   ];
 
   let my = doc.y + 32;
   for (const [l1, v1, l2, v2] of metaRows) {
-    doc.drawText(l1, col1X, my, { font: 'F2', size: 8.5, color: C.subtle });
-    doc.drawText(truncateText(v1, maxValW1, 'F2', 8.5), col1X + valOffset1, my, { font: 'F2', size: 8.5, color: C.ink });
-    doc.drawText(l2, col2X, my, { font: 'F2', size: 8.5, color: C.subtle });
-    doc.drawText(truncateText(v2, maxValW2, 'F2', 8.5), col2X + valOffset2, my, { font: 'F2', size: 8.5, color: C.ink });
+    doc.drawText(l1, col1X, my, { font: 'F1', size: 8.6, color: C.subtle });
+    doc.drawText(truncateText(v1, maxW1, 'F2', 8.6), col1X + lblW1, my, { font: 'F2', size: 8.6, color: C.ink });
+    doc.drawText(l2, col2X, my, { font: 'F1', size: 8.6, color: C.subtle });
+    doc.drawText(truncateText(v2, maxW2, 'F2', 8.6), col2X + lblW2, my, { font: 'F2', size: 8.6, color: C.ink });
     my += 15;
   }
-  doc.y += metaH + 12;
+  doc.y += metaH + 16;
 
-  // 4. Executive Score & KPI Breakdown
-  const heroGap = 10;
-  const heroW = 206;
-  const kpiAreaW = CONTENT_W - heroW - heroGap;
-  const kpiGap = 8;
-  const kpiCardW = (kpiAreaW - kpiGap) / 2;
-  const scoreBlockH = 92;
-
-  // Left Score Hero Card
-  doc.drawRoundedRect(MARGIN_X, doc.y, heroW, scoreBlockH, 8, { fill: C.tealSoft, stroke: C.tealBorder, lineWidth: 1 });
-  doc.drawText('TOTAL MARKS OBTAINED', MARGIN_X + heroW / 2, doc.y + 18, { font: 'F2', size: 8, color: C.tealDark, align: 'center' });
-  const scoreMain = `${submission.score ?? 0} / ${submission.totalMarks ?? 0}`;
-  const scoreSize = measureTextWidth(scoreMain, 'F2', 22) > heroW - 24 ? 17 : 22;
-  doc.drawText(scoreMain, MARGIN_X + heroW / 2, doc.y + 44, { font: 'F2', size: scoreSize, color: C.ink, align: 'center' });
-
-  // Vector progress bar
-  const barX = MARGIN_X + 20;
-  const barY = doc.y + 54;
-  const barW = heroW - 40;
-  const pct = Math.max(0, Math.min(100, Number(submission.percentage) || 0));
-  doc.drawRoundedRect(barX, barY, barW, 7, 3.5, { fill: C.white, stroke: C.tealBorder, lineWidth: 0.6 });
-  if (pct > 0) {
-    doc.drawRoundedRect(barX, barY, Math.max(7, (barW * pct) / 100), 7, 3.5, { fill: statusColor });
-  }
-  doc.drawText(`${submission.percentage ?? 0}% Overall Score  •  ${statusLabel}`, MARGIN_X + heroW / 2, doc.y + 77, {
-    font: 'F2',
-    size: 9,
-    color: statusColor,
-    align: 'center'
-  });
-
-  // Right 2x2 KPI Mini-Cards
-  const kpiH = (scoreBlockH - kpiGap) / 2;
-  const kpis = [
-    { label: 'CORRECT ANSWERS', value: String(submission.correctCount ?? 0), accent: C.green, bg: C.greenSoft, border: C.greenBorder },
-    { label: 'WRONG ANSWERS', value: String(submission.wrongCount ?? 0), accent: C.red, bg: C.redSoft, border: C.redBorder },
-    { label: 'SKIPPED QUESTIONS', value: String(submission.skippedCount ?? 0), accent: C.subtle, bg: C.surface, border: C.border },
-    { label: 'TIME TAKEN', value: formatDuration(submission.timeTakenSeconds), accent: C.teal, bg: C.tealSoft, border: C.tealBorder }
-  ];
-
-  const kpiX0 = MARGIN_X + heroW + heroGap;
-  for (let i = 0; i < kpis.length; i++) {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const kx = kpiX0 + col * (kpiCardW + kpiGap);
-    const ky = doc.y + row * (kpiH + kpiGap);
-    const item = kpis[i];
-    doc.drawRoundedRect(kx, ky, kpiCardW, kpiH, 6, { fill: item.bg, stroke: item.border, lineWidth: 0.8 });
-    doc.drawRoundedRect(kx + 0.5, ky + 6, 3, kpiH - 12, 1.5, { fill: item.accent });
-    doc.drawText(item.label, kx + 11, ky + 15, { font: 'F2', size: 7.2, color: C.subtle });
-    doc.drawText(item.value, kx + 11, ky + 33, { font: i === 3 ? 'F4' : 'F2', size: 15, color: item.accent });
-  }
-
-  doc.y += scoreBlockH + 9;
-
-  // 5. Proctoring Compliance Strip
-  const proctor = submission.proctoring || {};
-  const vCount = Number(proctor.violationsCount) || 0;
-  const proctorText = vCount > 0
-    ? `Proctoring Alert: ${vCount} Violation(s) Logged${proctor.autoSubmittedReason === 'proctor-limit' ? ' (Auto-submitted on violation limit)' : ''}`
-    : 'Proctoring Integrity: Clean (0 Violations Recorded)';
-  const pBg = vCount > 0 ? C.redSoft : C.greenSoft;
-  const pBorder = vCount > 0 ? C.redBorder : C.greenBorder;
-  const pColor = vCount > 0 ? C.red : C.green;
-
-  const events = vCount > 0 && Array.isArray(proctor.events) ? proctor.events.slice(0, 4) : [];
-  const eventSummary = events.length > 0
-    ? `Events: ${events.map((ev) => `${ev.type || 'flag'} on Q${ev.questionNumber || '?'}`).join('  |  ')}`
-    : '';
-  const proctorH = eventSummary ? 36 : 24;
-
-  doc.drawRoundedRect(MARGIN_X, doc.y, CONTENT_W, proctorH, 6, { fill: pBg, stroke: pBorder, lineWidth: 0.8 });
-  if (vCount > 0) {
-    doc.drawCrossVector(MARGIN_X + 14, doc.y + 12, 7.5, pColor);
-  } else {
-    doc.drawCheckVector(MARGIN_X + 14, doc.y + 12, 7.5, pColor);
-  }
-  doc.drawText(truncateText(proctorText, CONTENT_W - 34, 'F2', 8.8), MARGIN_X + 26, doc.y + 15, {
-    font: 'F2',
-    size: 8.8,
-    color: pColor
-  });
-  if (eventSummary) {
-    doc.drawText(truncateText(eventSummary, CONTENT_W - 34, 'F1', 7.8), MARGIN_X + 26, doc.y + 28, {
-      font: 'F1',
-      size: 7.8,
-      color: C.muted
-    });
-  }
-  doc.y += proctorH + 14;
-
-  // 6. Subject-Wise Performance Breakdown Table
+  // 3. Subject-Wise Performance Table (clean neutral header & crisp rules)
   const subjects = Array.isArray(submission.subjectBreakdown) ? submission.subjectBreakdown : [];
   if (subjects.length > 0) {
-    drawSectionHeading(doc, 'Subject-Wise Performance Breakdown', `${subjects.length} Subject${subjects.length === 1 ? '' : 's'}`);
+    drawSectionHeading(
+      doc,
+      'Subject-Wise Breakdown',
+      `Correct: ${submission.correctCount ?? 0}  •  Wrong: ${submission.wrongCount ?? 0}  •  Skipped: ${submission.skippedCount ?? 0}`
+    );
 
     const cols = [
-      { label: 'Subject', w: 179.28, align: 'left' },
+      { label: 'Subject', w: 185.28, align: 'left' },
       { label: 'Marks', w: 80, align: 'center' },
       { label: 'Accuracy', w: 72, align: 'center' },
-      { label: 'Correct', w: 64, align: 'center' },
-      { label: 'Wrong', w: 64, align: 'center' },
-      { label: 'Skipped', w: 64, align: 'center' }
+      { label: 'Correct', w: 59, align: 'center' },
+      { label: 'Wrong', w: 59, align: 'center' },
+      { label: 'Skipped', w: 60, align: 'center' }
     ];
 
     const drawTableHeader = () => {
       doc.ensureSpace(44);
       const hy = doc.y;
-      doc.drawRoundedRect(MARGIN_X, hy, CONTENT_W, 22, 5, { fill: C.tealDark });
+      doc.drawRect(MARGIN_X, hy, CONTENT_W, 21, { fill: C.surfaceAlt, stroke: C.borderStrong, lineWidth: 0.7 });
       let cx = MARGIN_X;
       for (const col of cols) {
         const tx = col.align === 'center' ? cx + col.w / 2 : cx + 10;
-        doc.drawText(col.label, tx, hy + 14.5, { font: 'F2', size: 8.5, color: C.white, align: col.align });
+        doc.drawText(col.label, tx, hy + 13.8, { font: 'F2', size: 8.4, color: C.slateDark, align: col.align });
         cx += col.w;
       }
-      doc.y += 22;
+      doc.y += 21;
     };
 
     drawTableHeader();
 
     subjects.forEach((sb, idx) => {
-      if (doc.ensureSpace(22)) {
-        drawTableHeader();
-      }
+      if (doc.ensureSpace(22)) drawTableHeader();
       const ry = doc.y;
       const bg = idx % 2 === 1 ? C.surface : C.white;
-      doc.drawRect(MARGIN_X, ry, CONTENT_W, 21, { fill: bg, stroke: C.border, lineWidth: 0.5 });
+      doc.drawRect(MARGIN_X, ry, CONTENT_W, 21, { fill: bg, stroke: C.border, lineWidth: 0.55 });
 
       const subAcc = sb.maxMarks > 0 ? `${Math.max(0, Math.round((sb.marksObtained / sb.maxMarks) * 100))}%` : '0%';
-      const dotColor = parseHexColor(sb.color || '#0F766E');
-
       let cx = MARGIN_X;
-      doc.drawCircle(cx + 12, ry + 10.5, 3, { fill: dotColor });
-      doc.drawText(truncateText(sb.subjectName || sb.subjectId || 'Subject', cols[0].w - 24, 'F2', 8.8), cx + 20, ry + 13.5, {
+
+      doc.drawText(truncateText(sb.subjectName || sb.subjectId || 'Subject', cols[0].w - 16, 'F2', 8.8), cx + 10, ry + 13.5, {
         font: 'F2',
         size: 8.8,
         color: C.ink
@@ -917,10 +730,10 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
       doc.drawText(subAcc, cx + cols[2].w / 2, ry + 13.5, { font: 'F1', size: 8.8, color: C.muted, align: 'center' });
       cx += cols[2].w;
 
-      doc.drawText(String(sb.correct ?? 0), cx + cols[3].w / 2, ry + 13.5, { font: 'F2', size: 8.8, color: C.green, align: 'center' });
+      doc.drawText(String(sb.correct ?? 0), cx + cols[3].w / 2, ry + 13.5, { font: 'F2', size: 8.8, color: C.ink, align: 'center' });
       cx += cols[3].w;
 
-      doc.drawText(String(sb.wrong ?? 0), cx + cols[4].w / 2, ry + 13.5, { font: 'F2', size: 8.8, color: C.red, align: 'center' });
+      doc.drawText(String(sb.wrong ?? 0), cx + cols[4].w / 2, ry + 13.5, { font: 'F2', size: 8.8, color: C.ink, align: 'center' });
       cx += cols[4].w;
 
       doc.drawText(String(sb.skipped ?? 0), cx + cols[5].w / 2, ry + 13.5, { font: 'F1', size: 8.8, color: C.subtle, align: 'center' });
@@ -930,39 +743,39 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
     if (subjects.length > 1) {
       doc.ensureSpace(22);
       const ry = doc.y;
-      doc.drawRect(MARGIN_X, ry, CONTENT_W, 21, { fill: C.tealSoft, stroke: C.tealBorder, lineWidth: 0.7 });
+      doc.drawRect(MARGIN_X, ry, CONTENT_W, 21, { fill: C.surfaceAlt, stroke: C.borderStrong, lineWidth: 0.7 });
       let cx = MARGIN_X;
-      doc.drawText('OVERALL TOTAL', cx + 10, ry + 13.5, { font: 'F2', size: 8.5, color: C.tealDark });
+      doc.drawText('TOTAL', cx + 10, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink });
       cx += cols[0].w;
-      doc.drawText(`${submission.score ?? 0} / ${submission.totalMarks ?? 0}`, cx + cols[1].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.tealDark, align: 'center' });
+      doc.drawText(`${submission.score ?? 0} / ${submission.totalMarks ?? 0}`, cx + cols[1].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
       cx += cols[1].w;
-      doc.drawText(`${submission.percentage ?? 0}%`, cx + cols[2].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.tealDark, align: 'center' });
+      doc.drawText(`${submission.percentage ?? 0}%`, cx + cols[2].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
       cx += cols[2].w;
-      doc.drawText(String(submission.correctCount ?? 0), cx + cols[3].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.green, align: 'center' });
+      doc.drawText(String(submission.correctCount ?? 0), cx + cols[3].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
       cx += cols[3].w;
-      doc.drawText(String(submission.wrongCount ?? 0), cx + cols[4].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.red, align: 'center' });
+      doc.drawText(String(submission.wrongCount ?? 0), cx + cols[4].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.ink, align: 'center' });
       cx += cols[4].w;
-      doc.drawText(String(submission.skippedCount ?? 0), cx + cols[5].w / 2, ry + 13.5, { font: 'F2', size: 8.5, color: C.subtle, align: 'center' });
+      doc.drawText(String(submission.skippedCount ?? 0), cx + cols[5].w / 2, ry + 13.5, { font: 'F1', size: 8.5, color: C.subtle, align: 'center' });
       doc.y += 21;
     }
 
-    doc.y += 14;
+    doc.y += 16;
   }
 
-  // 7. Auto-Checked Answer Sheet
+  // 4. Clean Monochrome Answer Sheet Review
   const review = Array.isArray(submission.review) ? submission.review : [];
   drawSectionHeading(
     doc,
     'Checked Answer Sheet',
-    review.length > 0 ? `${review.length} Question${review.length === 1 ? '' : 's'}` : 'Summary Only'
+    review.length > 0 ? `${review.length} Questions` : 'Summary Only'
   );
 
   if (review.length === 0) {
     doc.ensureSpace(44);
-    doc.drawRoundedRect(MARGIN_X, doc.y, CONTENT_W, 38, 6, { fill: C.surface, stroke: C.border, lineWidth: 0.8 });
+    doc.drawRoundedRect(MARGIN_X, doc.y, CONTENT_W, 38, 5, { fill: C.surface, stroke: C.border, lineWidth: 0.75 });
     doc.drawText(
       submission.reviewHidden
-        ? 'Detailed question-by-question answer review is currently hidden by Sir for this exam.'
+        ? 'Detailed question-by-question answer review is hidden by Sir for this exam.'
         : 'Question review details are not attached to this summary copy.',
       MARGIN_X + 12,
       doc.y + 22,
@@ -971,21 +784,18 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
     doc.y += 46;
   } else {
     const letters = ['A', 'B', 'C', 'D'];
-    const innerPad = 12;
-    const innerW = CONTENT_W - innerPad * 2 - 4;
+    const innerW = CONTENT_W - 24;
 
     review.forEach((item, idx) => {
       const qStatus = item.status || 'skipped';
-      const accent = qStatus === 'correct' ? C.green : qStatus === 'wrong' ? C.red : C.subtle;
-      const badgeBg = qStatus === 'correct' ? C.greenSoft : qStatus === 'wrong' ? C.redSoft : C.surfaceAlt;
-      const badgeBorder = qStatus === 'correct' ? C.greenBorder : qStatus === 'wrong' ? C.redBorder : C.borderStrong;
+      const statusColor = qStatus === 'correct' ? C.passText : qStatus === 'wrong' ? C.failText : C.subtle;
       const statusText = qStatus === 'correct'
-        ? `CORRECT (+${item.marksAwarded ?? 1})`
+        ? `Correct (+${item.marksAwarded ?? 1})`
         : qStatus === 'wrong'
-          ? `WRONG (${item.marksAwarded ?? 0})`
-          : 'SKIPPED (0)';
+          ? `Wrong (${item.marksAwarded ?? 0})`
+          : 'Skipped (0)';
 
-      const qLines = wrapText(item.question || '', innerW, 'F2', 9.5);
+      const qLines = wrapText(item.question || '', innerW, 'F2', 9.4);
       const codeLines = item.code ? wrapText(item.code, innerW - 14, 'F3', 8) : [];
 
       const hasChosen = item.selectedIndex !== null && item.selectedIndex !== undefined && item.options?.[item.selectedIndex] !== undefined;
@@ -994,18 +804,18 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
         ? `${letters[item.correctIndex]}. ${item.options[item.correctIndex]}`
         : 'N/A';
 
-      const ansLabelW = 78;
+      const ansLabelW = 76;
       const selectedLines = wrapText(chosenStr, innerW - ansLabelW, qStatus === 'wrong' ? 'F2' : 'F1', 8.7);
       const correctLines = wrapText(correctStr, innerW - ansLabelW, 'F2', 8.7);
-      const expLines = item.explanation ? wrapText(`Explanation: ${item.explanation}`, innerW - 12, 'F1', 8.2) : [];
+      const expLines = item.explanation ? wrapText(`Note: ${item.explanation}`, innerW, 'F1', 8.1) : [];
 
-      const headerH = 22;
+      const headerH = 21;
       const qH = qLines.length * 12.5 + 4;
-      const codeH = codeLines.length > 0 ? codeLines.length * 10.5 + 22 : 0;
+      const codeH = codeLines.length > 0 ? codeLines.length * 10.5 + 18 : 0;
       const selH = selectedLines.length * 11.5 + 3;
       const corH = correctLines.length * 11.5 + 4;
-      const expH = expLines.length > 0 ? expLines.length * 10.5 + 16 : 0;
-      const cardH = headerH + 10 + qH + codeH + selH + corH + expH + 10;
+      const expH = expLines.length > 0 ? expLines.length * 10.5 + 6 : 0;
+      const cardH = headerH + 10 + qH + codeH + selH + corH + expH + 8;
 
       if (cardH <= BOTTOM_LIMIT - TOP_MARGIN_NEXT) {
         doc.ensureSpace(cardH + 8);
@@ -1014,72 +824,56 @@ function generateScoreReportPdf({ submission, instituteName = 'CodeAura Classroo
       }
 
       const cy = doc.y;
-      doc.drawRoundedRect(MARGIN_X, cy, CONTENT_W, cardH, 7, { fill: C.white, stroke: C.border, lineWidth: 0.8 });
-      // Left status stripe
-      doc.drawRoundedRect(MARGIN_X + 0.5, cy + 4, 3.5, cardH - 8, 1.8, { fill: accent });
+      doc.drawRoundedRect(MARGIN_X, cy, CONTENT_W, cardH, 5, { fill: C.white, stroke: C.borderStrong, lineWidth: 0.7 });
+      doc.drawRect(MARGIN_X + 0.5, cy + 0.5, CONTENT_W - 1, headerH, { fill: C.surface });
+      doc.drawLine(MARGIN_X, cy + headerH, MARGIN_X + CONTENT_W, cy + headerH, C.border, 0.6);
 
-      // Top strip inside question card
-      doc.drawRect(MARGIN_X + 4.5, cy + 0.5, CONTENT_W - 5, headerH, { fill: C.surface });
-      doc.drawLine(MARGIN_X + 4.5, cy + headerH, MARGIN_X + CONTENT_W, cy + headerH, C.border, 0.5);
-
-      doc.drawText(`Q${idx + 1}  •  ${item.subjectName || 'MCQ'}`, MARGIN_X + 14, cy + 14.5, {
+      doc.drawText(`Q${idx + 1}  •  ${item.subjectName || 'MCQ'}`, MARGIN_X + 12, cy + 14, {
         font: 'F2',
         size: 8.6,
-        color: C.tealDark
+        color: C.slateDark
       });
-
-      const pillW = measureTextWidth(statusText, 'F2', 7.6) + 16;
-      const pillXPos = MARGIN_X + CONTENT_W - pillW - 8;
-      doc.drawRoundedRect(pillXPos, cy + 3.5, pillW, 15, 7.5, { fill: badgeBg, stroke: badgeBorder, lineWidth: 0.6 });
-      doc.drawText(statusText, pillXPos + pillW / 2, cy + 13.5, {
+      doc.drawText(statusText, MARGIN_X + CONTENT_W - 12, cy + 14, {
         font: 'F2',
-        size: 7.6,
-        color: accent,
-        align: 'center'
+        size: 8.4,
+        color: statusColor,
+        align: 'right'
       });
 
       let cursorY = cy + headerH + 14;
-      const textX = MARGIN_X + 14;
+      const textX = MARGIN_X + 12;
 
-      // Question text
-      doc.drawLines(qLines, textX, cursorY, { font: 'F2', size: 9.5, lineHeight: 12.5, color: C.ink });
+      doc.drawLines(qLines, textX, cursorY, { font: 'F2', size: 9.4, lineHeight: 12.5, color: C.ink });
       cursorY += qLines.length * 12.5 + 2;
 
-      // Optional code snippet
       if (codeLines.length > 0) {
-        const boxTop = cursorY - 6;
-        const boxH = codeLines.length * 10.5 + 11;
-        doc.drawRoundedRect(textX, boxTop, innerW, boxH, 5, { fill: C.codeBg });
-        doc.drawLines(codeLines, textX + 8, boxTop + 12.5, { font: 'F3', size: 8, lineHeight: 10.5, color: C.codeText });
-        cursorY = boxTop + boxH + 14;
+        const boxTop = cursorY - 5;
+        const boxH = codeLines.length * 10.5 + 10;
+        doc.drawRoundedRect(textX, boxTop, innerW, boxH, 4, { fill: C.surface, stroke: C.border, lineWidth: 0.6 });
+        doc.drawLines(codeLines, textX + 8, boxTop + 12, { font: 'F3', size: 8, lineHeight: 10.5, color: C.slateDark });
+        cursorY = boxTop + boxH + 13;
       }
 
-      // Selected Answer
-      doc.drawText('Your Answer:', textX, cursorY, { font: 'F2', size: 8.6, color: C.subtle });
+      doc.drawText('Your Answer:', textX, cursorY, { font: 'F1', size: 8.6, color: C.subtle });
       doc.drawLines(selectedLines, textX + ansLabelW, cursorY, {
         font: qStatus === 'wrong' ? 'F2' : 'F1',
         size: 8.7,
         lineHeight: 11.5,
-        color: qStatus === 'wrong' ? C.red : qStatus === 'correct' ? C.green : C.subtle
+        color: qStatus === 'wrong' ? C.failText : C.ink
       });
       cursorY += selectedLines.length * 11.5 + 3;
 
-      // Correct Answer
-      doc.drawText('Correct Answer:', textX, cursorY, { font: 'F2', size: 8.6, color: C.green });
+      doc.drawText('Correct Answer:', textX, cursorY, { font: 'F2', size: 8.6, color: C.passText });
       doc.drawLines(correctLines, textX + ansLabelW, cursorY, {
         font: 'F2',
         size: 8.7,
         lineHeight: 11.5,
-        color: C.green
+        color: C.passText
       });
       cursorY += correctLines.length * 11.5 + 4;
 
-      // Optional Explanation
       if (expLines.length > 0) {
-        const expTop = cursorY - 7;
-        const expBoxH = expLines.length * 10.5 + 8;
-        doc.drawRoundedRect(textX, expTop, innerW, expBoxH, 4, { fill: C.tealSoft, stroke: C.tealBorder, lineWidth: 0.5 });
-        doc.drawLines(expLines, textX + 7, expTop + 11, { font: 'F1', size: 8.2, lineHeight: 10.5, color: C.muted });
+        doc.drawLines(expLines, textX, cursorY + 1, { font: 'F1', size: 8.1, lineHeight: 10.5, color: C.muted });
       }
 
       doc.y = cy + cardH + 8;
