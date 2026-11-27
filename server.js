@@ -625,7 +625,16 @@ async function handleApi(req, res, url) {
         const id = decodeURIComponent(examLiveMatch[1]);
         const body = await readJsonBody(req);
         const exam = store.toggleExamLive(id, body.isLive);
-        broadcastEvent('exams-updated', { examId: exam.id, isLive: exam.isLive });
+        broadcastEvent('exams-updated', { examId: exam.id, isLive: exam.isLive, isLocked: exam.isLocked });
+        return sendJson(res, 200, { exam });
+      }
+
+      const examLockMatch = pathname.match(/^\/api\/teacher\/exams\/([^/]+)\/lock$/);
+      if (method === 'PATCH' && examLockMatch) {
+        const id = decodeURIComponent(examLockMatch[1]);
+        const body = await readJsonBody(req);
+        const exam = store.toggleExamLock(id, body.isLocked);
+        broadcastEvent('exams-updated', { examId: exam.id, isLive: exam.isLive, isLocked: exam.isLocked });
         return sendJson(res, 200, { exam });
       }
 

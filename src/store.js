@@ -578,6 +578,7 @@ class ExamStore {
       shuffleQuestions: exam.shuffleQuestions !== false,
       shuffleOptions: exam.shuffleOptions !== undefined ? Boolean(exam.shuffleOptions) : (exam.shuffleQuestions !== false),
       rotateDailyPool: exam.rotateDailyPool !== false,
+      isLocked: Boolean(exam.isLocked),
       totalMarks: Number((serveCount * (Number(exam.marksPerQuestion) || 1)).toFixed(2)),
       subjectBreakdown: Object.values(subjectBreakdown),
       submissionsCount
@@ -656,6 +657,7 @@ class ExamStore {
         blockCopyPaste,
         speedModeSeconds,
         isLive: payload.isLive !== undefined ? Boolean(payload.isLive) : this.data.exams[idx].isLive,
+        isLocked: payload.isLocked !== undefined ? Boolean(payload.isLocked) : Boolean(this.data.exams[idx].isLocked),
         questionIds,
         updatedAt: now
       };
@@ -684,6 +686,7 @@ class ExamStore {
       blockCopyPaste,
       speedModeSeconds,
       isLive: payload.isLive !== undefined ? Boolean(payload.isLive) : true,
+      isLocked: payload.isLocked !== undefined ? Boolean(payload.isLocked) : true,
       questionIds,
       createdAt: now,
       updatedAt: now
@@ -701,6 +704,19 @@ class ExamStore {
       throw err;
     }
     exam.isLive = Boolean(isLive);
+    exam.updatedAt = new Date().toISOString();
+    this.save();
+    return this._enrichExamSummary(exam);
+  }
+
+  toggleExamLock(id, isLocked) {
+    const exam = this.data.exams.find((e) => e.id === id);
+    if (!exam) {
+      const err = new Error('Exam not found.');
+      err.statusCode = 404;
+      throw err;
+    }
+    exam.isLocked = Boolean(isLocked);
     exam.updatedAt = new Date().toISOString();
     this.save();
     return this._enrichExamSummary(exam);
@@ -738,6 +754,7 @@ class ExamStore {
           requireFullscreen: enriched.requireFullscreen !== false,
           blockCopyPaste: enriched.blockCopyPaste !== false,
           speedModeSeconds: Number(enriched.speedModeSeconds) || 0,
+          isLocked: Boolean(enriched.isLocked),
           questionCount: enriched.questionCount,
           totalMarks: enriched.totalMarks,
           subjectBreakdown: enriched.subjectBreakdown,
@@ -851,6 +868,12 @@ class ExamStore {
       throw err;
     }
 
+    if (exam.isLocked) {
+      const err = new Error('This exam is currently locked by Sir. Please wait for Sir to unlock it.');
+      err.statusCode = 423;
+      throw err;
+    }
+
     if (!exam.allowRetake && rollNumber) {
       const cleanRoll = String(rollNumber).trim().toLowerCase();
       const alreadySubmitted = this.data.submissions.find(
@@ -910,6 +933,11 @@ class ExamStore {
     if (!exam) {
       const err = new Error('Exam not found.');
       err.statusCode = 404;
+      throw err;
+    }
+    if (exam.isLocked && !paperSpec) {
+      const err = new Error('This exam is currently locked by Sir and cannot be submitted yet.');
+      err.statusCode = 423;
       throw err;
     }
 

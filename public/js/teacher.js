@@ -394,9 +394,12 @@
             <div style="flex:1;min-width:240px;">
               <div class="flex-row">
                 ${exam.isLive
-                  ? `<span class="badge badge-success"><span class="live-dot"></span> LIVE ON STUDENT PORTAL</span>`
+                  ? (exam.isLocked
+                    ? `<span class="badge badge-warning"><span class="live-dot"></span> LIVE • 🔒 LOCKED BY SIR</span>`
+                    : `<span class="badge badge-success"><span class="live-dot"></span> LIVE &amp; UNLOCKED</span>`)
                   : `<span class="badge badge-neutral">DRAFT (HIDDEN)</span>`
                 }
+                ${!exam.isLive && exam.isLocked ? `<span class="badge badge-warning">🔒 Locked</span>` : ''}
                 <strong style="font-size:16.5px;">${escapeHtml(exam.title)}</strong>
               </div>
               ${exam.description ? `<p class="text-muted text-sm" style="margin:6px 0 0;">${escapeHtml(exam.description)}</p>` : ''}
@@ -412,7 +415,10 @@
               </div>
             </div>
             <div class="flex-row">
-              <button type="button" class="btn btn-sm ${exam.isLive ? 'btn-warning' : 'btn-success'} toggle-live-btn" data-id="${escapeHtml(exam.id)}" data-live="${exam.isLive ? '1' : '0'}">
+              <button type="button" class="btn btn-sm ${exam.isLocked ? 'btn-success' : 'btn-warning'} toggle-lock-btn" data-id="${escapeHtml(exam.id)}" data-locked="${exam.isLocked ? '1' : '0'}">
+                ${exam.isLocked ? '🔓 Unlock Exam' : '🔒 Lock Exam'}
+              </button>
+              <button type="button" class="btn btn-sm ${exam.isLive ? 'btn-secondary' : 'btn-success'} toggle-live-btn" data-id="${escapeHtml(exam.id)}" data-live="${exam.isLive ? '1' : '0'}">
                 ${exam.isLive ? '⏸ Pause / Hide' : '▶ Go Live'}
               </button>
               <button type="button" class="btn btn-secondary btn-sm edit-exam-btn" data-id="${escapeHtml(exam.id)}">
@@ -429,6 +435,28 @@
         </div>
       `;
     }).join('');
+
+    listEl.querySelectorAll('.toggle-lock-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const currentlyLocked = btn.dataset.locked === '1';
+        try {
+          await apiFetch(`/api/teacher/exams/${encodeURIComponent(btn.dataset.id)}/lock`, {
+            method: 'PATCH',
+            auth: true,
+            body: { isLocked: !currentlyLocked }
+          });
+          showToast(
+            currentlyLocked
+              ? '🔓 Exam UNLOCKED! Students can now start the exam.'
+              : '🔒 Exam LOCKED! Waiting for Sir to unlock.',
+            currentlyLocked ? 'success' : 'info'
+          );
+          await loadBootstrap();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+    });
 
     listEl.querySelectorAll('.toggle-live-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -521,6 +549,7 @@
       maxTabViolations: document.getElementById('exam-max-violations-input').value,
       questionsPerStudent: document.getElementById('exam-per-student-input').value,
       isLive: document.getElementById('exam-live-check').checked,
+      isLocked: document.getElementById('exam-locked-check').checked,
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
       rotateDailyPool: document.getElementById('exam-rotate-daily-check').checked,
       showResultsImmediately: document.getElementById('exam-show-results-check').checked,
@@ -567,6 +596,7 @@
       if (d.maxTabViolations !== undefined) document.getElementById('exam-max-violations-input').value = d.maxTabViolations;
       if (d.questionsPerStudent !== undefined) document.getElementById('exam-per-student-input').value = d.questionsPerStudent;
       if (d.isLive !== undefined) document.getElementById('exam-live-check').checked = Boolean(d.isLive);
+      if (d.isLocked !== undefined) document.getElementById('exam-locked-check').checked = Boolean(d.isLocked);
       if (d.shuffleQuestions !== undefined) document.getElementById('exam-shuffle-check').checked = Boolean(d.shuffleQuestions);
       if (d.rotateDailyPool !== undefined) document.getElementById('exam-rotate-daily-check').checked = Boolean(d.rotateDailyPool);
       if (d.showResultsImmediately !== undefined) document.getElementById('exam-show-results-check').checked = Boolean(d.showResultsImmediately);
@@ -609,9 +639,12 @@
       hintEl.style.background = 'var(--success-soft)';
       hintEl.style.color = 'var(--success)';
       hintEl.style.borderColor = 'var(--success-border)';
-      hintEl.textContent = effectiveCount < poolCount
+      const lockedNote = document.getElementById('exam-locked-check').checked
+        ? ' • Starts 🔒 Locked until Sir unlocks'
+        : '';
+      hintEl.textContent = (effectiveCount < poolCount
         ? `✓ Ready: serving ${effectiveCount} unique MCQs per student from ${poolCount} selected (${totalMarks} Marks).`
-        : `✓ Ready to publish ${poolCount} MCQ${poolCount === 1 ? '' : 's'} (${totalMarks} Total Marks).`;
+        : `✓ Ready to publish ${poolCount} MCQ${poolCount === 1 ? '' : 's'} (${totalMarks} Total Marks).`) + lockedNote;
     }
   }
 
@@ -798,6 +831,7 @@
     document.getElementById('exam-max-violations-input').value = '1';
     document.getElementById('exam-per-student-input').value = '0';
     document.getElementById('exam-live-check').checked = true;
+    document.getElementById('exam-locked-check').checked = true;
     document.getElementById('exam-shuffle-check').checked = true;
     document.getElementById('exam-rotate-daily-check').checked = true;
     document.getElementById('exam-show-results-check').checked = true;
@@ -826,6 +860,7 @@
     document.getElementById('exam-max-violations-input').value = exam.maxTabViolations ?? 1;
     document.getElementById('exam-per-student-input').value = exam.questionsPerStudent || 0;
     document.getElementById('exam-live-check').checked = Boolean(exam.isLive);
+    document.getElementById('exam-locked-check').checked = Boolean(exam.isLocked);
     document.getElementById('exam-shuffle-check').checked = exam.shuffleQuestions !== false;
     document.getElementById('exam-rotate-daily-check').checked = exam.rotateDailyPool !== false;
     document.getElementById('exam-show-results-check').checked = exam.showResultsImmediately !== false;
@@ -847,6 +882,7 @@
     renderSelectedSummary();
     saveBuilderDraft();
   });
+  document.getElementById('exam-locked-check').addEventListener('change', updatePublishGuardrails);
   document.getElementById('exam-per-student-input').addEventListener('input', () => {
     renderSelectedSummary();
     saveBuilderDraft();
@@ -857,7 +893,7 @@
   });
   [
     'exam-desc-input', 'exam-duration-input', 'exam-neg-input', 'exam-pass-input',
-    'exam-speed-input', 'exam-max-violations-input', 'exam-live-check', 'exam-shuffle-check',
+    'exam-speed-input', 'exam-max-violations-input', 'exam-live-check', 'exam-locked-check', 'exam-shuffle-check',
     'exam-rotate-daily-check', 'exam-show-results-check', 'exam-retake-check', 'exam-proctor-tab-check',
     'exam-block-copy-check', 'exam-fullscreen-check'
   ].forEach((id) => {
@@ -1276,6 +1312,7 @@
       maxTabViolations: Math.max(0, Number(document.getElementById('exam-max-violations-input').value) || 0),
       questionsPerStudent: Math.max(0, Number(document.getElementById('exam-per-student-input').value) || 0),
       isLive: document.getElementById('exam-live-check').checked,
+      isLocked: document.getElementById('exam-locked-check').checked,
       shuffleQuestions: document.getElementById('exam-shuffle-check').checked,
       shuffleOptions: document.getElementById('exam-shuffle-check').checked,
       rotateDailyPool: document.getElementById('exam-rotate-daily-check').checked,
@@ -1293,9 +1330,12 @@
         auth: true,
         body: payload
       });
+      const locked = Boolean(res.exam.isLocked);
       showToast(
         res.exam.isLive
-          ? 'Exam saved & pushed LIVE to Student Portal!'
+          ? (locked
+            ? 'Exam pushed LIVE & LOCKED! Click "🔓 Unlock Exam" when students should start.'
+            : 'Exam saved & unlocked LIVE on Student Portal!')
           : 'Exam saved as Draft!',
         'success'
       );

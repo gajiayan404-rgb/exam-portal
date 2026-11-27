@@ -146,15 +146,23 @@
         </span>
       `).join('');
 
+      const isLocked = Boolean(exam.isLocked);
+      const cardBorder = isLocked ? 'var(--warning-border)' : 'var(--primary-border)';
+      const cardBg = isLocked ? '#fffdf5' : '#fcfdff';
+
       return `
-        <div class="card card-compact" style="border:1.5px solid var(--primary-border);background:#fcfdff;">
+        <div class="card card-compact" style="border:1.5px solid ${cardBorder};background:${cardBg};">
           <div class="flex-between">
             <div style="flex:1;min-width:220px;">
               <div class="flex-row">
-                <span class="badge badge-success"><span class="live-dot"></span> LIVE</span>
+                ${isLocked
+                  ? `<span class="badge badge-warning">🔒 LOCKED BY SIR</span>`
+                  : `<span class="badge badge-success"><span class="live-dot"></span> LIVE &amp; OPEN</span>`
+                }
                 <strong style="font-size:17px;">${escapeHtml(exam.title)}</strong>
               </div>
               ${exam.description ? `<p class="text-sm text-muted" style="margin:6px 0 0;">${escapeHtml(exam.description)}</p>` : ''}
+              ${isLocked ? `<p class="text-xs" style="margin:6px 0 0;color:var(--warning);font-weight:600;">⏳ Waiting for Sir to unlock this exam. Fill your details on the left and keep this page open.</p>` : ''}
               <div class="flex-row mt-2">
                 <span class="badge badge-primary">${exam.questionCount} MCQs</span>
                 <span class="badge badge-neutral">${exam.totalMarks} Total Marks</span>
@@ -167,9 +175,10 @@
               </div>
             </div>
             <div>
-              <button type="button" class="btn btn-primary btn-lg start-exam-btn" data-id="${escapeHtml(exam.id)}">
-                Start Exam →
-              </button>
+              ${isLocked
+                ? `<button type="button" class="btn btn-secondary btn-lg" disabled style="cursor:not-allowed;opacity:0.85;">🔒 Waiting for Unlock</button>`
+                : `<button type="button" class="btn btn-primary btn-lg start-exam-btn" data-id="${escapeHtml(exam.id)}">Start Exam →</button>`
+              }
             </div>
           </div>
         </div>
@@ -191,10 +200,18 @@
     const sse = new EventSource('/api/events');
     const badge = document.getElementById('sse-live-badge');
 
-    sse.addEventListener('exams-updated', () => {
+    sse.addEventListener('exams-updated', (ev) => {
       if (!state.activeExam) {
         loadLiveExams();
-        showToast('Live exams updated by Sir!', 'info');
+        let data = null;
+        try { data = JSON.parse(ev.data || 'null'); } catch {}
+        if (data && data.isLocked === false) {
+          showToast('🔓 Exam UNLOCKED by Sir! Click "Start Exam" to begin.', 'success');
+        } else if (data && data.isLocked === true) {
+          showToast('🔒 Exam locked by Sir. Waiting for unlock.', 'info');
+        } else {
+          showToast('Live exams updated by Sir!', 'info');
+        }
       }
     });
 
